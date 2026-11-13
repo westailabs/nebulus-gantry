@@ -337,6 +337,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## 📊 Project Status
 
+- ✅ **v2.3.0** - MIT license, AGENTS.md baseline, and develop/main reconciliation
 - ✅ **v2.0** - Complete rewrite (FastAPI + React)
 - ✅ **Streaming chat** - SSE real-time responses
 - ✅ **Long-term memory** - ChromaDB + NetworkX

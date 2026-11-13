@@ -6,7 +6,7 @@ import { usePreferencesStore } from '../stores/preferencesStore';
 import type { Model } from '../types/api';
 
 const THEME_KEY = 'nebulus-theme';
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.3.0';
 
 type Theme = 'dark' | 'light';
 
