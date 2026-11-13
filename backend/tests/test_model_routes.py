@@ -272,7 +272,7 @@ class TestModelSwitching:
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert "v1/model/load" in call_args[0][0]
-        assert call_args[1]["json"]["name"] == "qwen-2.5-14b"
+        assert call_args[1]["json"]["model_name"] == "qwen-2.5-14b"
 
     def test_switched_model_shows_as_active(self, client, test_user):
         """After switching, the new model appears as active in the list."""
