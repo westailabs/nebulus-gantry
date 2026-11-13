@@ -12,15 +12,16 @@ This document defines the collaboration protocol between the human user and the 
 
 ## 3. Branching Strategy
 
-Gantry uses a simplified branch model with `main` as the single permanent branch.
+Gantry uses `develop` as the integration branch and `main` as release.
 
-### Permanent Branch (Remote)
+### Permanent Branches (Remote)
 
-- **`main`**: Production-ready code. All work merges here.
+- **`develop`**: Integration branch for the next release. All work merges here first.
+- **`main`**: Production-ready code. Do not commit straight to `main`.
 
 ### Temporary Branches (Local Only)
 
-**CRITICAL**: These branches exist **only** on your local machine. Do **not** push them to origin unless working on a long-lived collaborative feature.
+These branches should stay on your local machine until the maintainer approves a push or pull request.
 
 - **`feat/name`**: New features (components, services, endpoints)
 - **`fix/description`**: Bug fixes
@@ -56,7 +57,7 @@ Gantry uses a simplified branch model with `main` as the single permanent branch
 
 **Agent Action**:
 
-1. Create a feature branch from `main`.
+1. Create a feature branch from `develop`.
 2. Write code following patterns in `CONTEXT.md` and `AI_DIRECTIVES.md`.
 3. Write tests in `backend/tests/`.
 4. Verify locally with `pytest` and `bin/gantry validate`.
@@ -68,7 +69,7 @@ Gantry uses a simplified branch model with `main` as the single permanent branch
 **Agent Action**:
 
 1. Commit changes using conventional commit messages.
-2. Merge to `main` locally.
+2. Merge into `develop` locally with `--no-ff` after approval.
 3. Update `docs/AI_INSIGHTS.md` if any new lessons were learned.
 4. Notify user: "Feature complete. Tests passed."
 
@@ -76,11 +77,11 @@ Gantry uses a simplified branch model with `main` as the single permanent branch
 
 ### Step 1 — Start
 
-Checkout `main` and pull latest.
+Checkout `develop` and pull latest (only when a pull has been approved).
 
 ```bash
-git checkout main
-git pull origin main
+git checkout develop
+git pull origin develop
 ```
 
 ### Step 2 — Branch
@@ -113,19 +114,19 @@ pre-commit run --all-files
 
 ### Step 5 — Merge
 
-Switch back to `main` and merge.
+Switch back to `develop` and merge with `--no-ff`.
 
 ```bash
-git checkout main
-git merge feat/my-new-feature
+git checkout develop
+git merge --no-ff feat/my-new-feature
 ```
 
 ### Step 6 — Push
 
-Push **only** with explicit user authorization.
+Push **only** with explicit user authorization. Prefer pushing `develop`, not a feature branch, and only when asked.
 
 ```bash
-git push origin main
+git push origin develop
 ```
 
 ### Step 7 — Cleanup
@@ -196,7 +197,7 @@ gh run view <id>
 
 ## 9. Security & Safety
 
-- **No Auto-Merge**: Never merge to `main` without explicit user command.
+- **No Auto-Merge**: Never merge to `develop` or `main` without an explicit user command.
 - **No Secrets in Commits**: Never commit `.env` files, API keys, or credentials.
 - **Verification First**: Always run tests before declaring work complete.
 - **Push Authorization**: Never push to remote without explicit user approval.
