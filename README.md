@@ -2,6 +2,8 @@
 
 A branded AI chat interface for the **Nebulus Prime** ecosystem. Gantry provides a Claude.AI-like conversational UI backed by streaming LLM responses, long-term memory, and an admin control plane.
 
+Coding agents should read [AGENTS.md](AGENTS.md).
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -119,10 +121,11 @@ nebulus-gantry/
 ### Docker (quickest)
 
 ```bash
-docker-compose up --build
+bin/gantry start          # docker compose up --build
+# or: docker compose up --build
 ```
 
-- Frontend: <http://localhost:3000>
+- Frontend: <http://localhost:3002> (this branch; container port 3000)
 - Backend: <http://localhost:8000>
 - API docs: <http://localhost:8000/docs>
 
@@ -131,11 +134,10 @@ docker-compose up --build
 **Backend:**
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+export PYTHONPATH=.
+uvicorn backend.main:app --reload --port 8000
 ```
 
 **Frontend:**
@@ -160,8 +162,8 @@ All configuration is via environment variables:
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite:///./data/gantry.db` | SQLAlchemy database URL |
 | `SECRET_KEY` | `dev-secret-change-in-production` | Session signing secret |
-| `CHROMA_HOST` | `http://localhost:8001` | ChromaDB endpoint |
-| `TABBY_HOST` | `http://localhost:5000` | TabbyAPI endpoint |
+| `NEBULUS_CHROMA_URL` | `http://localhost:8001` | Private ChromaDB endpoint (legacy alias: `CHROMA_HOST`) |
+| `NEBULUS_LLM_URL` | `http://localhost:5000` | OpenAI-compatible LLM endpoint (legacy alias: `TABBY_HOST`) |
 | `SESSION_EXPIRE_HOURS` | `24` | Session cookie lifetime |
 | `VITE_API_URL` | `http://localhost:8000` | Backend URL (frontend) |
 
@@ -222,10 +224,10 @@ All endpoints require authentication via `session_token` cookie unless noted.
 ## Testing
 
 ```bash
-cd backend
-python -m pytest tests/ -v
+python3 -m pytest backend/tests -v
+# or: bin/gantry test
 ```
 
 ## License
 
-Proprietary -- West AI Labs.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
