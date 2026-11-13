@@ -69,3 +69,10 @@ _corrupted_backup/
 
 # Screenshots
 *.png
+.sandbox-venv/
+.env.backup-*
+.env.bak
+
+# Gemini CLI — ignore cache but commit settings
+.gemini/*
+!.gemini/settings.json

@@ -43,10 +43,17 @@ case $COMMAND in
     ;;
 
   test)
-    echo "Running tests requires local venv or docker exec. Attempting local venv..."
-    PROJECT_ROOT="$BIN_DIR/.."
-    export PYTHONPATH="$PROJECT_ROOT/src:$PYTHONPATH"
-    "$PROJECT_ROOT/venv/bin/pytest" "$PROJECT_ROOT/tests/"
+    echo "Running backend unit tests (pytest)..."
+    PROJECT_ROOT="$(cd "$BIN_DIR/.." && pwd)"
+    cd "$PROJECT_ROOT"
+    export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+    if [ -x "$PROJECT_ROOT/.venv/bin/pytest" ]; then
+      "$PROJECT_ROOT/.venv/bin/pytest" backend/tests -v
+    elif [ -x "$PROJECT_ROOT/venv/bin/pytest" ]; then
+      "$PROJECT_ROOT/venv/bin/pytest" backend/tests -v
+    else
+      python3 -m pytest backend/tests -v
+    fi
     ;;
 
   test-frontend)

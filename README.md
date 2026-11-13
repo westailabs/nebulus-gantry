@@ -4,9 +4,11 @@
 
 A production-ready web application for deploying your own AI assistant. Works with any OpenAI-compatible API (TabbyAPI, Ollama, vLLM) and includes document search, long-term memory, and enterprise admin features.
 
+Coding agents should read [AGENTS.md](AGENTS.md).
+
 [🚀 Quick Start](#-quick-start) • [📚 Wiki](../../wiki) • [🎯 Features](#-features) • [🏗️ Architecture](#%EF%B8%8F-architecture)
 
-[![License](https://img.shields.io/badge/license-Proprietary-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
@@ -74,14 +76,14 @@ A production-ready web application for deploying your own AI assistant. Works wi
 ### 1. Clone & Configure
 
 ```bash
-git clone https://github.com/jlwestsr/nebulus-gantry.git
+git clone git@github.com:westailabs/nebulus-gantry.git
 cd nebulus-gantry
 
 # Create environment file
 cat > .env << 'EOF'
 DATABASE_URL=sqlite:///./data/gantry.db
-CHROMA_HOST=http://chromadb:8000
-TABBY_HOST=http://your-llm-api:5000
+NEBULUS_CHROMA_URL=http://127.0.0.1:8001
+NEBULUS_LLM_URL=http://127.0.0.1:5000
 SECRET_KEY=change-this-to-a-random-secret
 SESSION_EXPIRE_HOURS=24
 VITE_API_URL=http://localhost:8000
@@ -91,12 +93,13 @@ EOF
 ### 2. Run with Docker
 
 ```bash
-docker compose up -d
+bin/gantry start          # or: docker compose up --build
+# detached: docker compose up -d
 ```
 
 **Access Points:**
 
-- 🌐 **Frontend**: <http://localhost:3001>
+- 🌐 **Frontend**: <http://localhost:3002>
 - 🔧 **Backend API**: <http://localhost:8000>
 - 📖 **API Docs**: <http://localhost:8000/docs> (interactive Swagger UI)
 
@@ -309,8 +312,8 @@ Key environment variables:
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite:///./data/gantry.db` | SQLAlchemy database connection string |
 | `SECRET_KEY` | `dev-secret-change-in-production` | Session signing secret (change in prod!) |
-| `CHROMA_HOST` | `http://localhost:8000` | ChromaDB HTTP endpoint for vectors |
-| `TABBY_HOST` | `http://localhost:5000` | LLM API endpoint (OpenAI-compatible) |
+| `NEBULUS_CHROMA_URL` | `http://localhost:8001` | Private ChromaDB endpoint (legacy alias: `CHROMA_HOST`) |
+| `NEBULUS_LLM_URL` | `http://localhost:5000` | OpenAI-compatible LLM endpoint (legacy alias: `TABBY_HOST`) |
 | `SESSION_EXPIRE_HOURS` | `24` | Session cookie lifetime in hours |
 | `VITE_API_URL` | `http://localhost:8000` | Backend URL for frontend (build-time) |
 
@@ -340,18 +343,16 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 - ✅ **Knowledge Vault** - RAG with document upload
 - ✅ **Admin panel** - Users, models, services, logs
 - ✅ **Model switching** - Hot-swap LLMs via TabbyAPI
-- ✅ **Conversation export** - JSON and PDF formats
+- ✅ **Conversation export** - JSON, PDF, and Excel formats
 - ✅ **Searchable history** - Ctrl+K command palette
-- 🚧 **Personas** - Custom system prompts (planned)
+- ✅ **Personas** - Custom system prompts
 - 🚧 **Multi-modal** - Image upload support (planned)
 
 ---
 
 ## 📄 License
 
-**Proprietary** - West AI Labs LLC
-
-This software is proprietary and not open source. All rights reserved.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ---
 
