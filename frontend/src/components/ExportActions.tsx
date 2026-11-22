@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { chatApi } from '../services/api';
 
 interface ExportActionsProps {
   conversationId: number | null;

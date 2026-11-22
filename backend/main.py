@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
     admin.shutdown_docker_service()
 
 
-app = FastAPI(title="Nebulus Gantry", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Nebulus Gantry", version="2.3.1", lifespan=lifespan)
 
 # CORS
 app.add_middleware(

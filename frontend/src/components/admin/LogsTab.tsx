@@ -23,6 +23,15 @@ export function LogsTab() {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [paused, setPaused] = useState(false);
+  const [streamService, setStreamService] = useState(selectedService);
+
+  // Reset stream UI when the selected service changes (during render, not in an effect)
+  if (streamService !== selectedService) {
+    setStreamService(selectedService);
+    setStatus(selectedService ? 'connecting' : 'disconnected');
+    setLines([]);
+    setPaused(false);
+  }
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -69,13 +78,9 @@ export function LogsTab() {
     }
 
     if (!selectedService) {
-      setStatus('disconnected');
       return;
     }
 
-    setStatus('connecting');
-    setLines([]);
-    setPaused(false);
     pausedRef.current = false;
     userScrolledUpRef.current = false;
 

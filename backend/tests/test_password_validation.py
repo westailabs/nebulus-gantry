@@ -4,9 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.schemas.password import (
-    BLOCKED_PASSWORDS,
     MAX_LENGTH,
-    MIN_LENGTH,
     PasswordMixin,
     validate_password,
 )

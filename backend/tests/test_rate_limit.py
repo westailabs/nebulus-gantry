@@ -1,7 +1,6 @@
 """Tests for the email-based rate limiter."""
 
 import threading
-import time
 from unittest.mock import patch
 
 import pytest

@@ -1,11 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDocumentStore } from '../stores/documentStore';
 
-interface KnowledgeVaultProps {
-  onClose?: () => void;
-}
-
-export function KnowledgeVault(_props: KnowledgeVaultProps) {
+export function KnowledgeVault() {
   const {
     collections,
     documents,

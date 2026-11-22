@@ -11,14 +11,13 @@ import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
 import { chatApi, dispatchApi } from '../services/api';
-import type { Message, MessageMeta, Conversation, Persona, DocumentScope } from '../types/api';
+import type { Message, MessageMeta, Conversation, Persona } from '../types/api';
 
 const OVERLORD_ROUTING_ENABLED = false; // Direct LLM mode for appliance
 
 
 export function Chat() {
   const { currentConversationId, updateConversationTitle, createConversation, setModelSwitching } = useChatStore();
-  const { user } = useAuthStore();
   const { sidebarOpen, toggleSidebar, addEvent, clearEvents, events } = useDispatchStore();
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
@@ -60,7 +59,7 @@ export function Chat() {
   }, [currentConversationId]);
 
   // Handle document scope change
-  const handleScopeChange = useCallback((_scope: DocumentScope[] | null) => {
+  const handleScopeChange = useCallback(() => {
     // Scope is persisted server-side; no local state needed
   }, []);
 

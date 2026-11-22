@@ -1,23 +1,14 @@
 """Tests for the CSV parser/chunking module."""
-import csv
-import io
-import tempfile
 from pathlib import Path
 
 import pytest
 
 from backend.services.csv_parser import (
-    CSVChunk,
     CSVParseError,
-    CSVSummary,
-    NumericStats,
-    chunk_csv,
     detect_delimiter,
     detect_encoding,
-    generate_summary,
     parse_and_summarize,
     parse_csv,
-    read_csv_bytes,
 )
 
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "tests" / "fixtures"
@@ -134,7 +125,7 @@ class TestEncoding:
 
 class TestMaxRowCap:
     def test_cap_enforced(self):
-        lines = ["a,b"] + [f"{i},{i+1}" for i in range(200)]
+        lines = ["a,b"] + [f"{i},{i + 1}" for i in range(200)]
         raw = "\n".join(lines).encode()
         chunks = parse_csv(raw, max_rows=50)
         total = sum(len(c.rows) for c in chunks)

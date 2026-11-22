@@ -290,6 +290,7 @@ Gantry works with any **OpenAI-compatible API**:
 
 ## 📊 Project Status
 
+- ✅ **v2.3.1** - CI lint and test fixes so GitHub Actions passes
 - ✅ **v2.3.0** - MIT license, AGENTS.md baseline, and develop/main reconciliation
 - ✅ **v2.0** - Complete rewrite (FastAPI + React)
 - ✅ **Streaming chat** - SSE real-time responses

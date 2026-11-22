@@ -1,13 +1,11 @@
 """Tests for the CSV upload router."""
 import io
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.routers.csv import router, MAX_FILE_SIZE
-from backend.services.csv_parser import CSVParseError
 
 
 # ── Test app setup ──────────────────────────────────────────────
