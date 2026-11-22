@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Generator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
@@ -26,6 +26,7 @@ from backend.schemas.admin import (
     UserAdminResponse,
     UserListResponse,
 )
+from backend.services.audit_service import AuditService, client_ip, event_to_dict, events_to_csv
 from backend.services.auth_service import AuthService, hash_password
 from backend.services.model_service import ModelService
 from backend.services.persona_service import PersonaService
@@ -249,8 +250,48 @@ async def stream_logs(
 # ── Data Export ─────────────────────────────────────────────────────────────
 
 
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/audit")
+def list_audit_events(
+    action: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    admin=Depends(require_admin),
+    db: DBSession = Depends(get_db),
+):
+    """List audit events, newest first."""
+    events, total = AuditService(db).list_events(action=action, user_id=user_id, limit=limit, offset=offset)
+    return {"total": total, "events": [event_to_dict(e) for e in events]}
+
+
+@router.get("/audit/export.csv")
+def export_audit_csv(
+    request: Request,
+    action: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    admin=Depends(require_admin),
+    db: DBSession = Depends(get_db),
+):
+    """Download audit events as CSV (up to 100k rows). The export is itself audited."""
+    svc = AuditService(db)
+    events, total = svc.list_events(action=action, user_id=user_id, limit=100_000)
+    body = events_to_csv(events)
+    svc.record("audit.export", user=admin, ip_address=client_ip(request),
+               detail={"rows": len(events), "action_filter": action, "user_filter": user_id})
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gantry-audit-{stamp}.csv"},
+    )
+
+
 @router.post("/export/bulk")
 def bulk_export(
+    request: Request,
     user_id: int | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -271,6 +312,12 @@ def bulk_export(
 
     export_service = ExportService(db)
     zip_buffer = export_service.bulk_export(user_id, date_from, date_to)
+    AuditService(db).record(
+        "conversation.bulk_export", user=admin, ip_address=client_ip(request),
+        detail={"user_filter": user_id,
+                "date_from": date_from.isoformat() if date_from else None,
+                "date_to": date_to.isoformat() if date_to else None},
+    )
 
     return Response(
         content=zip_buffer.getvalue(),

@@ -452,14 +452,14 @@ class DocumentService:
             logger.error(f"Failed to search documents: {e}")
             return []
 
-    def build_rag_context(
+    def retrieve_sources(
         self,
         user_id: int,
         query: str,
         document_scope: list[dict] | None = None,
         top_k: int = 3,
-    ) -> str:
-        """Build RAG context from document search results.
+    ) -> list[dict]:
+        """Retrieve the top document chunks for a query, honoring the scope.
 
         Args:
             user_id: The user ID
@@ -468,9 +468,9 @@ class DocumentService:
             top_k: Number of results to return
 
         Returns:
-            Formatted context string with source citations
+            List of result dicts (document_id, filename, chunk_text,
+            similarity, chunk_index), best first.
         """
-        # Parse document scope into collection_ids and document_ids
         collection_ids = []
         document_ids = []
 
@@ -481,7 +481,6 @@ class DocumentService:
                 elif scope.get("type") == "document":
                     document_ids.append(scope["id"])
 
-        # Search with collection filter if any
         results = self.search_documents(
             user_id=user_id,
             query=query,
@@ -489,20 +488,67 @@ class DocumentService:
             top_k=top_k * 2,  # Get more to filter by document_ids
         )
 
-        # Filter by document_ids if specified
         if document_ids:
             results = [r for r in results if r["document_id"] in document_ids]
 
-        # Limit to top_k
-        results = results[:top_k]
+        return results[:top_k]
 
-        if not results:
-            return ""
+    def build_rag_context(
+        self,
+        user_id: int,
+        query: str,
+        document_scope: list[dict] | None = None,
+        top_k: int = 3,
+    ) -> str:
+        """Build RAG context (legacy string form) from document search results."""
+        results = self.retrieve_sources(user_id, query, document_scope, top_k)
+        return format_sources_context(results)
 
-        # Format as context with citations
-        parts = ["Relevant document context:"]
-        for r in results:
-            citation = f"[Source: {r['filename']}, chunk {r['chunk_index'] + 1}]"
-            parts.append(f"- {r['chunk_text'][:500]}... {citation}")
+    def get_chunk_text(self, user_id: int, document_id: int, chunk_index: int) -> str | None:
+        """Return the stored text of one chunk, or None if unavailable."""
+        if not self._chroma_available or not self._vector_client:
+            return None
+        try:
+            collection = self._vector_client.get_or_create_collection(
+                self._get_collection_name(user_id)
+            )
+            res = collection.get(ids=[f"doc_{document_id}_chunk_{chunk_index}"])
+            docs = res.get("documents") or []
+            return docs[0] if docs else None
+        except Exception as e:
+            logger.warning(f"Failed to fetch chunk {document_id}/{chunk_index}: {e}")
+            return None
 
-        return "\n".join(parts)
+
+def sources_to_citations(results: list[dict], snippet_chars: int = 240) -> list[dict]:
+    """Convert retrieval results into numbered, client-safe citation dicts."""
+    return [
+        {
+            "n": i + 1,
+            "document_id": r["document_id"],
+            "filename": r["filename"],
+            "chunk_index": r["chunk_index"],
+            "similarity": round(float(r.get("similarity", 0.0)), 4),
+            "snippet": (r.get("chunk_text") or "")[:snippet_chars],
+        }
+        for i, r in enumerate(results)
+    ]
+
+
+def format_sources_context(results: list[dict], chunk_chars: int = 1500) -> str:
+    """Format retrieved chunks as numbered sources for the system prompt."""
+    if not results:
+        return ""
+    parts = [
+        "Answer ONLY from the numbered sources below. Cite every fact with its "
+        "source number in square brackets, e.g. [1]. If the sources do not "
+        "contain the answer, say you could not find it in the documents.",
+        "",
+        "Sources:",
+    ]
+    for i, r in enumerate(results):
+        parts.append(
+            f"[{i + 1}] {r['filename']} (chunk {r['chunk_index'] + 1}):\n"
+            f"{(r.get('chunk_text') or '')[:chunk_chars]}"
+        )
+    return "\n".join(parts)

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.orm import Session as DBSession
 
 from backend.dependencies import get_db
+from backend.services.audit_service import AuditService, client_ip
 from backend.services.auth_service import AuthService, hash_password, verify_password
 from backend.schemas.auth import ChangePasswordRequest, LoginRequest, UserResponse
 
@@ -23,11 +24,19 @@ def get_current_user(request: Request, auth: AuthService = Depends(get_auth_serv
 
 
 @router.post("/login")
-def login(data: LoginRequest, response: Response, auth: AuthService = Depends(get_auth_service)):
+def login(
+    data: LoginRequest,
+    response: Response,
+    request: Request,
+    auth: AuthService = Depends(get_auth_service),
+    db: DBSession = Depends(get_db),
+):
     user = auth.authenticate(data.email, data.password)
     if not user:
+        AuditService(db).record("auth.login_failed", user_email=data.email, ip_address=client_ip(request))
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = auth.create_session(user.id)
+    AuditService(db).record("auth.login", user=user, ip_address=client_ip(request))
     response.set_cookie(
         key="session_token",
         value=token,
@@ -41,9 +50,17 @@ def login(data: LoginRequest, response: Response, auth: AuthService = Depends(ge
 
 
 @router.post("/logout")
-def logout(request: Request, response: Response, auth: AuthService = Depends(get_auth_service)):
+def logout(
+    request: Request,
+    response: Response,
+    auth: AuthService = Depends(get_auth_service),
+    db: DBSession = Depends(get_db),
+):
     token = request.cookies.get("session_token")
     if token:
+        user = auth.validate_session(token)
+        if user:
+            AuditService(db).record("auth.logout", user=user, ip_address=client_ip(request))
         auth.delete_session(token)
     response.delete_cookie(
         "session_token",

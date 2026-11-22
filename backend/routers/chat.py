@@ -1,8 +1,9 @@
 import json
 import logging
+import os
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session as DBSession
 from backend.config import settings
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
+from backend.services.audit_service import AuditService, client_ip
 from backend.services.chat_service import ChatService
 from backend.services.llm_service import LLMService
 from backend.services.model_service import ModelService
@@ -27,6 +29,16 @@ from backend.schemas.persona import SetConversationPersonaRequest
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+NO_SOURCE_MESSAGE = (
+    "I couldn't find anything about that in the selected documents, so I "
+    "won't guess. Try rephrasing, or check that the right client documents "
+    "are in scope."
+)
+
+
+def _refuse_without_sources() -> bool:
+    return os.getenv("GANTRY_REFUSE_WITHOUT_SOURCES", "true").lower() in ("true", "1", "yes")
 
 
 def _build_token_meta(
@@ -249,6 +261,7 @@ def toggle_pin_conversation(
 @router.get("/conversations/{conversation_id}/export")
 def export_conversation(
     conversation_id: int,
+    http_request: Request,
     format: str = Query(default="json", pattern="^(json|pdf|excel)$"),
     user=Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -266,10 +279,17 @@ def export_conversation(
 
     export_service = ExportService(db)
 
+    def _audit_export():
+        AuditService(db).record(
+            "conversation.export", user=user, resource_type="conversation",
+            resource_id=conversation_id, detail={"format": format}, ip_address=client_ip(http_request),
+        )
+
     if format == "json":
         data = export_service.export_json(conversation_id, user.id)
         if not data:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return JSONResponse(
             content=data,
             headers={
@@ -280,6 +300,7 @@ def export_conversation(
         pdf_bytes = export_service.export_pdf(conversation_id, user.id)
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -291,6 +312,7 @@ def export_conversation(
         excel_bytes = export_service.export_spreadsheet(conversation_id, user.id)
         if not excel_bytes:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return Response(
             content=excel_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -303,6 +325,7 @@ def export_conversation(
 @router.get("/conversations/{conversation_id}/report")
 def export_report(
     conversation_id: int,
+    http_request: Request,
     user=Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
@@ -325,6 +348,10 @@ def export_report(
     report_bytes = export_service.export_report(conversation_id, user.id)
     if not report_bytes:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    AuditService(db).record(
+        "conversation.export", user=user, resource_type="conversation",
+        resource_id=conversation_id, detail={"format": "report"}, ip_address=client_ip(http_request),
+    )
 
     return Response(
         content=report_bytes,
@@ -339,6 +366,7 @@ def export_report(
 async def send_message(  # noqa: C901
     conversation_id: int,
     request: SendMessageRequest,
+    http_request: Request,
     user=Depends(get_current_user),
     chat: ChatService = Depends(get_chat_service),
     db: DBSession = Depends(get_db),
@@ -380,19 +408,44 @@ async def send_message(  # noqa: C901
     ltm_context = build_ltm_context(similar_messages, related_facts)
 
     # --- RAG: Query document knowledge vault ---
+    from backend.services.document_service import format_sources_context, sources_to_citations
+
     rag_context = ""
-    if conversation.document_scope:
+    rag_scoped = bool(conversation.document_scope)
+    citations: list[dict] = []
+    if rag_scoped:
         try:
             document_service = _create_document_service(db)
             document_scope = json.loads(conversation.document_scope)
-            rag_context = document_service.build_rag_context(
+            results = document_service.retrieve_sources(
                 user_id=user.id,
                 query=request.content,
                 document_scope=document_scope,
                 top_k=3,
             )
+            citations = sources_to_citations(results)
+            rag_context = format_sources_context(results)
         except Exception as e:
             logger.warning(f"RAG context build failed: {e}")
+    refused = rag_scoped and not citations and _refuse_without_sources()
+    audit = AuditService(db)
+    ip = client_ip(http_request)
+
+    if refused:
+        async def refuse():
+            start_time = time.monotonic()
+            yield f"data: {json.dumps({'content': NO_SOURCE_MESSAGE})}\n\n"
+            meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
+                    "sources": [], "refused": True}
+            yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+            chat.add_message(conversation_id, "assistant", NO_SOURCE_MESSAGE)
+            audit.record(
+                "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+                doc_ids=[], query_text=request.content, ip_address=ip,
+                detail={"refused": True, "scoped": True, "model": None},
+            )
+
+        return StreamingResponse(refuse(), media_type="text/event-stream")
 
     # --- Persona: Load persona system prompt if assigned ---
     persona = None
@@ -456,6 +509,9 @@ async def send_message(  # noqa: C901
     async def generate():
         full_response = ""
         start_time = time.monotonic()
+        if citations:
+            # Structured citations first, so the UI can render clickable sources.
+            yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
         async for chunk in llm.stream_chat(
             llm_messages, model=llm_model, temperature=persona_temperature
         ):
@@ -464,10 +520,25 @@ async def send_message(  # noqa: C901
 
         generation_time_ms = int((time.monotonic() - start_time) * 1000)
         meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
+        if rag_scoped:
+            meta["sources"] = citations
         yield f"event: done\ndata: {json.dumps(meta)}\n\n"
 
         # Save assistant response after streaming completes
         assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
+        if citations:
+            try:
+                assistant_msg.sources = json.dumps(citations)
+                chat.db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to persist citations: {e}")
+        audit.record(
+            "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+            doc_ids=[c["document_id"] for c in citations], query_text=request.content, ip_address=ip,
+            detail={"refused": False, "scoped": rag_scoped, "model": llm_model,
+                    "generation_time_ms": generation_time_ms,
+                    "completion_tokens": meta.get("completion_tokens")},
+        )
 
         # --- LTM: Update long-term memory asynchronously ---
         # Embed user message into ChromaDB

@@ -1,6 +1,8 @@
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel
+import json
+
+from pydantic import BaseModel, field_validator
 
 
 class ConversationResponse(BaseModel):
@@ -16,14 +18,36 @@ class ConversationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CitationResponse(BaseModel):
+    n: int
+    document_id: int
+    filename: str
+    chunk_index: int
+    similarity: float | None = None
+    snippet: str | None = None
+
+
 class MessageResponse(BaseModel):
     id: int
     conversation_id: int
     role: str
     content: str
     created_at: datetime
+    sources: list[CitationResponse] | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _parse_sources(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return None
+        return v
 
 
 class ConversationDetailResponse(BaseModel):

@@ -4,6 +4,21 @@ import httpx
 from typing import AsyncGenerator
 
 from backend.platform import get_llm_base_url, get_default_model
+from backend.services.reasoning_filter import ThinkTagFilter, strip_reasoning
+
+EMPTY_ANSWER_MESSAGE = (
+    "[The model returned no answer text (it may have spent its budget on "
+    "hidden reasoning). Please try again or rephrase.]"
+)
+
+
+def _get_max_tokens() -> int | None:
+    """Optional completion cap from NEBULUS_LLM_MAX_TOKENS (unset = server default)."""
+    raw = os.getenv("NEBULUS_LLM_MAX_TOKENS")
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
 
 
 def _get_llm_headers() -> dict:
@@ -56,8 +71,16 @@ class LLMService:
         }
         if temperature is not None:
             request_body["temperature"] = temperature
+        max_tokens = _get_max_tokens()
+        if max_tokens:
+            request_body["max_tokens"] = max_tokens
 
-        async with httpx.AsyncClient(timeout=60.0, headers=self.headers) as client:
+        think_filter = ThinkTagFilter()
+        emitted = False
+
+        # Reasoning models can think for a while before the first answer token,
+        # so allow a longer read timeout than the default.
+        async with httpx.AsyncClient(timeout=180.0, headers=self.headers) as client:
             try:
                 async with client.stream(
                     "POST",
@@ -66,25 +89,46 @@ class LLMService:
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                # Capture usage if present (typically in last chunk)
-                                if "usage" in chunk and chunk["usage"]:
-                                    self.last_usage = chunk["usage"]
-                                if content := chunk.get("choices", [{}])[0].get("delta", {}).get("content"):
-                                    yield content
-                            except json.JSONDecodeError:
-                                continue
+                        done, content = self._parse_sse_line(line)
+                        if done:
+                            break
+                        if content:
+                            visible = think_filter.feed(content)
+                            if visible:
+                                emitted = emitted or bool(visible.strip())
+                                yield visible
+                    tail = think_filter.flush()
+                    if tail:
+                        emitted = emitted or bool(tail.strip())
+                        yield tail
+                    if not emitted:
+                        yield EMPTY_ANSWER_MESSAGE
             except httpx.HTTPStatusError as e:
                 yield f"[Error: LLM service returned {e.response.status_code}]"
             except httpx.ConnectError:
                 yield "[Error: Could not connect to LLM service. Is the LLM service running?]"
             except Exception as e:
                 yield f"[Error: {str(e)}]"
+
+    def _parse_sse_line(self, line: str) -> tuple[bool, str | None]:
+        """Parse one SSE line. Returns (done, visible_content_delta).
+
+        Captures token usage into self.last_usage. Only ``content`` is
+        user-visible; ``reasoning_content`` (hidden thoughts) is ignored.
+        """
+        if not line.startswith("data: "):
+            return False, None
+        data = line[6:]
+        if data == "[DONE]":
+            return True, None
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            return False, None
+        if chunk.get("usage"):
+            self.last_usage = chunk["usage"]
+        choices = chunk.get("choices") or [{}]
+        return False, choices[0].get("delta", {}).get("content")
 
     async def chat(self, messages: list[dict], model: str | None = None) -> str:
         """
@@ -102,6 +146,6 @@ class LLMService:
                 )
                 response.raise_for_status()
                 data = response.json()
-                return data["choices"][0]["message"]["content"]
+                return strip_reasoning(data["choices"][0]["message"].get("content") or "")
             except Exception as e:
                 return f"[Error: {str(e)}]"
