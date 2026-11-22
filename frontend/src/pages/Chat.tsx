@@ -11,7 +11,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
 import { chatApi, dispatchApi } from '../services/api';
-import type { Message, MessageMeta, Conversation, Persona } from '../types/api';
+import type { Citation, Message, MessageMeta, Conversation, Persona } from '../types/api';
 
 const OVERLORD_ROUTING_ENABLED = false; // Direct LLM mode for appliance
 
@@ -112,6 +112,7 @@ export function Chat() {
       try {
         let fullContent = '';
         let streamMeta: MessageMeta | undefined;
+        let streamSources: Citation[] | undefined;
 
         if (OVERLORD_ROUTING_ENABLED) {
           // Dispatch mode: route through Overlord
@@ -154,8 +155,18 @@ export function Chat() {
                     : msg
                 )
               );
+            } else if (event.type === 'sources') {
+              streamSources = event.sources;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === tempAssistantMessageId
+                    ? { ...msg, sources: event.sources }
+                    : msg
+                )
+              );
             } else if (event.type === 'done') {
               streamMeta = event.meta;
+              if (event.meta.sources) streamSources = event.meta.sources;
             }
           }
         }
@@ -164,7 +175,7 @@ export function Chat() {
         setMessages((prev) =>
           prev.map((msg) =>
             msg.id === tempAssistantMessageId
-              ? { ...msg, content: fullContent, meta: streamMeta }
+              ? { ...msg, content: fullContent, meta: streamMeta, sources: streamSources }
               : msg
           )
         );

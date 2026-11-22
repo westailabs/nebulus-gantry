@@ -32,11 +32,26 @@ import type {
   DispatchRequest,
   DispatchEvent,
   MessageMeta,
+  Citation,
+  DocumentChunk,
+  AuditListResponse,
+  AuditFilters,
 } from '../types/api';
 
 export type ChatStreamEvent =
   | { type: 'content'; content: string }
+  | { type: 'sources'; sources: Citation[] }
   | { type: 'done'; meta: MessageMeta };
+
+function auditQuery(filters: AuditFilters = {}): string {
+  const params = new URLSearchParams();
+  if (filters.action) params.set('action', filters.action);
+  if (filters.user_id != null) params.set('user_id', String(filters.user_id));
+  if (filters.limit != null) params.set('limit', String(filters.limit));
+  if (filters.offset != null) params.set('offset', String(filters.offset));
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
 
 function getApiUrl(): string {
   return import.meta.env.VITE_API_URL ?? '';
@@ -170,6 +185,13 @@ export const chatApi = {
               } catch {
                 // Ignore malformed done payload
               }
+            } else if (eventName === 'sources') {
+              try {
+                const sources = JSON.parse(eventData) as Citation[];
+                yield { type: 'sources', sources };
+              } catch {
+                // Ignore malformed sources payload
+              }
             }
             continue;
           }
@@ -206,6 +228,10 @@ export const modelsApi = {
 // ─── Documents / Knowledge Vault ─────────────────────────────────────────────
 
 export const documentApi = {
+  // Source viewer
+  getChunk: (documentId: number, chunkIndex: number) =>
+    fetchApi<DocumentChunk>(`/api/documents/${documentId}/chunks/${chunkIndex}`),
+
   // Collections
   listCollections: () => fetchApi<Collection[]>('/api/documents/collections'),
 
@@ -317,6 +343,13 @@ export const personaApi = {
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 export const adminApi = {
+  // Audit log
+  listAuditEvents: (filters: AuditFilters = {}) =>
+    fetchApi<AuditListResponse>(`/api/admin/audit${auditQuery(filters)}`),
+
+  auditCsvUrl: (filters: AuditFilters = {}) =>
+    `${getApiUrl()}/api/admin/audit/export.csv${auditQuery({ action: filters.action, user_id: filters.user_id })}`,
+
   // Users
   listUsers: () =>
     fetchApi<{ users: AdminUser[] }>('/api/admin/users'),
