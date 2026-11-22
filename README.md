@@ -126,7 +126,7 @@ db.close()
 
 ### 4. Start Chatting
 
-Navigate to <http://localhost:3001>, log in with your admin credentials, and start your first conversation. The AI will remember context across sessions and you can upload documents for RAG-powered answers.
+Navigate to <http://localhost:3002>, log in with your admin credentials, and start your first conversation. The AI will remember context across sessions and you can upload documents for RAG-powered answers.
 
 ---
 
