@@ -2,7 +2,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Message } from '../types/api';
 import { usePreferencesStore } from '../stores/preferencesStore';
-import { ChartBlock, extractChartsFromText } from './ChartBlock';
+import { ChartBlock } from './ChartBlock';
+import { extractChartsFromText } from './chartUtils';
 
 interface MessageBubbleProps {
   message: Message;
@@ -29,7 +30,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   // Extract charts from assistant messages
   const charts = !isUser ? extractChartsFromText(message.content) : [];
-  
+
   // Remove chart JSON from the text content to avoid displaying it
   const cleanContent = !isUser && charts.length > 0
     ? message.content.replace(/\{"chart":\s*\{[^}]+\}\}/g, '').trim()
@@ -85,7 +86,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             >
               {cleanContent}
             </Markdown>
-            
+
             {/* Render charts if detected */}
             {charts.length > 0 && (
               <div className="mt-4">

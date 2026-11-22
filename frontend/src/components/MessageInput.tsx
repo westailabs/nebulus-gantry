@@ -29,18 +29,45 @@ export function MessageInput({
       const data = await modelsApi.list();
       setModels(data.models);
       // Auto-select the active model, or fall back to the first available
-      if (!selectedModel && data.models.length > 0) {
+      setSelectedModel((current) => {
+        if (current || data.models.length === 0) {
+          return current;
+        }
         const active = data.models.find((m) => m.active);
-        setSelectedModel(active ? active.id : data.models[0].id);
-      }
+        return active ? active.id : data.models[0].id;
+      });
     } catch {
       // Non-critical
     }
-  }, [selectedModel]);
+  }, []);
 
   useEffect(() => {
-    fetchModels();
-  }, [fetchModels]);
+    let cancelled = false;
+
+    async function loadModels() {
+      try {
+        const data = await modelsApi.list();
+        if (cancelled) {
+          return;
+        }
+        setModels(data.models);
+        setSelectedModel((current) => {
+          if (current || data.models.length === 0) {
+            return current;
+          }
+          const active = data.models.find((m) => m.active);
+          return active ? active.id : data.models[0].id;
+        });
+      } catch {
+        // Non-critical
+      }
+    }
+
+    void loadModels();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Close model picker when clicking outside
   useEffect(() => {

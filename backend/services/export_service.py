@@ -4,13 +4,33 @@ import json
 import zipfile
 import re
 from datetime import datetime, timezone
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from sqlalchemy.orm import Session as DBSession
 
 from backend.models.conversation import Conversation
 from backend.models.message import Message
 from backend.models.user import User
+
+if TYPE_CHECKING:
+    from fpdf import FPDF
+
+
+def _auto_size_columns(sheet) -> None:
+    """Auto-size worksheet columns, capped at 50 characters."""
+    from openpyxl.utils import get_column_letter
+
+    for column in sheet.columns:
+        max_length = 0
+        column_letter = get_column_letter(column[0].column)
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except Exception:
+                pass
+        adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
+        sheet.column_dimensions[column_letter].width = adjusted_width
 
 
 class ExportService:
@@ -168,26 +188,11 @@ class ExportService:
         # Lazy import to avoid loading openpyxl if not needed
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Alignment
-        from openpyxl.utils import get_column_letter
 
         wb = Workbook()
 
         # Remove default sheet
         wb.remove(wb.active)
-
-        # Helper function to auto-size columns
-        def auto_size_columns(sheet):
-            for column in sheet.columns:
-                max_length = 0
-                column_letter = get_column_letter(column[0].column)
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)  # Cap at 50 characters
-                sheet.column_dimensions[column_letter].width = adjusted_width
 
         # --- SHEET 1: Raw Data ---
         raw_sheet = wb.create_sheet(title="Raw Data")
@@ -209,7 +214,7 @@ class ExportService:
 
             # Freeze header row
             raw_sheet.freeze_panes = "A2"
-            auto_size_columns(raw_sheet)
+            _auto_size_columns(raw_sheet)
         else:
             raw_sheet.cell(row=1, column=1, value="No CSV data found in conversation")
 
@@ -237,7 +242,7 @@ class ExportService:
             kpi_sheet.cell(row=row, column=3, value=kpi["notes"])
             row += 1
 
-        auto_size_columns(kpi_sheet)
+        _auto_size_columns(kpi_sheet)
 
         # --- SHEET 3: Recommendations ---
         rec_sheet = wb.create_sheet(title="Recommendations")
@@ -263,7 +268,7 @@ class ExportService:
             rec_sheet.cell(row=row, column=3, value=rec["impact"])
             row += 1
 
-        auto_size_columns(rec_sheet)
+        _auto_size_columns(rec_sheet)
 
         # --- SHEET 4: Export Info ---
         info_sheet = wb.create_sheet(title="Export Info")
@@ -279,7 +284,7 @@ class ExportService:
         info_sheet.cell(row=4, column=1, value="Messages Count:").font = Font(bold=True)
         info_sheet.cell(row=4, column=2, value=len(messages))
 
-        auto_size_columns(info_sheet)
+        _auto_size_columns(info_sheet)
 
         # Save to bytes
         buffer = io.BytesIO()
@@ -318,7 +323,7 @@ class ExportService:
                                             row_dict[header.strip()] = value
                                         csv_data.append(row_dict)
                             break
-                    except:
+                    except Exception:
                         continue
 
             if csv_data:  # Found some data, return it
@@ -603,7 +608,7 @@ class ExportService:
         pdf.set_font("Helvetica", "", 9)
         pdf.cell(0, 4, f"• Total conversation messages: {len(messages)}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.cell(0, 4, f"• Analysis completed: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 4, f"• Platform: Nebulus Gantry Business Intelligence", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 4, "• Platform: Nebulus Gantry Business Intelligence", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         # Footer
         pdf.ln(10)
@@ -632,9 +637,7 @@ class ExportService:
 
         # Look for dealership mentions in conversation
         for message in messages:
-            content = message.content.lower()
             # Look for patterns like "ABC Motors", "XYZ Auto", etc.
-            import re
             patterns = [
                 r'([A-Z][a-z]+ (?:Motors?|Auto|Ford|Chevy|Toyota|Honda|Hyundai))',
                 r'([A-Z][a-z]+ [A-Z][a-z]+ (?:Dealership|Auto))'

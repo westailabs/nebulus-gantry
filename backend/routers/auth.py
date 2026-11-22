@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.orm import Session as DBSession
 
-from backend.config import settings
 from backend.dependencies import get_db
 from backend.services.auth_service import AuthService, hash_password, verify_password
 from backend.schemas.auth import ChangePasswordRequest, LoginRequest, UserResponse

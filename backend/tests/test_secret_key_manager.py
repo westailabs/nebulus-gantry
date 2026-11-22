@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import stat
 import threading
 from pathlib import Path
 
-import pytest
 
 from backend.services.secret_key_manager import (
     _KEY_FILENAME,

@@ -15,7 +15,7 @@ export function DataTab() {
       try {
         const response = await adminApi.listUsers();
         setUsers(response.users);
-      } catch (err) {
+      } catch {
         setError('Failed to load users');
       }
     }
@@ -34,7 +34,7 @@ export function DataTab() {
       // The export is handled via form submission, so we can't detect completion
       // Just reset loading after a short delay
       setTimeout(() => setIsLoading(false), 1000);
-    } catch (err) {
+    } catch {
       setError('Export failed');
       setIsLoading(false);
     }

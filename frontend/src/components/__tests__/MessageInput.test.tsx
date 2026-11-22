@@ -6,7 +6,7 @@ import { MessageInput } from '../MessageInput';
 describe('MessageInput', () => {
   it('renders with default placeholder', () => {
     render(<MessageInput onSend={vi.fn()} />);
-    expect(screen.getByPlaceholderText('Message Nebulus...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Message Gantry...')).toBeInTheDocument();
   });
 
   it('renders with custom placeholder', () => {
@@ -22,7 +22,7 @@ describe('MessageInput', () => {
     await user.type(screen.getByRole('textbox'), '  Hello world  ');
     await user.click(screen.getByRole('button', { name: 'Send message' }));
 
-    expect(onSend).toHaveBeenCalledWith('Hello world');
+    expect(onSend).toHaveBeenCalledWith('Hello world', undefined);
   });
 
   it('clears input after sending', async () => {
@@ -42,7 +42,7 @@ describe('MessageInput', () => {
     render(<MessageInput onSend={onSend} />);
 
     await user.type(screen.getByRole('textbox'), 'Hello{Enter}');
-    expect(onSend).toHaveBeenCalledWith('Hello');
+    expect(onSend).toHaveBeenCalledWith('Hello', undefined);
   });
 
   it('does not send on Shift+Enter', async () => {

@@ -76,3 +76,6 @@ _corrupted_backup/
 # Gemini CLI — ignore cache but commit settings
 .gemini/*
 !.gemini/settings.json
+
+# Local pytest / tool output
+test_output.txt

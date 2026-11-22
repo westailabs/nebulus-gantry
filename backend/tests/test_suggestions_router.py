@@ -14,7 +14,6 @@ from backend.dependencies import get_db  # noqa: E402
 from backend.main import app  # noqa: E402
 from backend.models.user import User  # noqa: E402, F401
 from backend.models.session import Session  # noqa: E402, F401
-from backend.routers import suggestions as suggestions_router  # noqa: E402
 from backend.routers.suggestions import _DEFAULT_SUGGESTIONS, Suggestion  # noqa: E402
 
 # Router is registered in main.py — no need to add here

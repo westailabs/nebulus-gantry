@@ -8,8 +8,6 @@ To register in main.py, add:
     app.include_router(csv.router)
 """
 import logging
-from typing import Any
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
@@ -22,7 +20,6 @@ from backend.services.csv_parser import (
     CSVChunk,
     CSVParseError,
     CSVSummary,
-    NumericStats,
     parse_and_summarize,
 )
 

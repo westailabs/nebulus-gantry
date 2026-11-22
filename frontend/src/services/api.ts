@@ -38,13 +38,15 @@ export type ChatStreamEvent =
   | { type: 'content'; content: string }
   | { type: 'done'; meta: MessageMeta };
 
-const API_URL = import.meta.env.VITE_API_URL ?? '';
+function getApiUrl(): string {
+  return import.meta.env.VITE_API_URL ?? '';
+}
 
 async function fetchApi<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  const response = await fetch(`${getApiUrl()}${endpoint}`, {
     ...options,
     credentials: 'include',
     headers: {
@@ -111,7 +113,7 @@ export const chatApi = {
 
   exportConversation: (id: number, format: 'json' | 'pdf') => {
     // Trigger download via browser navigation
-    window.location.href = `${API_URL}/api/chat/conversations/${id}/export?format=${format}`;
+    window.location.href = `${getApiUrl()}/api/chat/conversations/${id}/export?format=${format}`;
   },
 
   sendMessage: async function* (
@@ -123,7 +125,7 @@ export const chatApi = {
     if (model) body.model = model;
 
     const response = await fetch(
-      `${API_URL}/api/chat/conversations/${conversationId}/messages`,
+      `${getApiUrl()}/api/chat/conversations/${conversationId}/messages`,
       {
         method: 'POST',
         credentials: 'include',
@@ -248,7 +250,7 @@ export const documentApi = {
       formData.append('collection_id', collectionId.toString());
     }
 
-    const response = await fetch(`${API_URL}/api/documents/upload`, {
+    const response = await fetch(`${getApiUrl()}/api/documents/upload`, {
       method: 'POST',
       credentials: 'include',
       body: formData,
@@ -362,7 +364,7 @@ export const adminApi = {
 
   // Logs
   streamLogs: (serviceName: string): EventSource => {
-    return new EventSource(`${API_URL}/api/admin/logs/${serviceName}`, {
+    return new EventSource(`${getApiUrl()}/api/admin/logs/${serviceName}`, {
       withCredentials: true,
     });
   },
@@ -376,7 +378,7 @@ export const adminApi = {
     // Use POST via form submission to handle auth cookie
     const form = document.createElement('form');
     form.method = 'POST';
-    form.action = `${API_URL}/api/admin/export/bulk?${params.toString()}`;
+    form.action = `${getApiUrl()}/api/admin/export/bulk?${params.toString()}`;
     document.body.appendChild(form);
     form.submit();
     document.body.removeChild(form);
@@ -503,7 +505,7 @@ export const dispatchApi = {
    * Returns an async generator of DispatchEvent objects via SSE.
    */
   sendMessage: async function* (request: DispatchRequest): AsyncGenerator<DispatchEvent> {
-    const response = await fetch(`${API_URL}/api/chat/dispatch`, {
+    const response = await fetch(`${getApiUrl()}/api/chat/dispatch`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

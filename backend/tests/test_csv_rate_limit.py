@@ -10,7 +10,6 @@ from backend.routers.csv import router
 from backend.routers.auth import get_current_user
 from backend.utils.csv_rate_limit import (
     ANALYZE_MAX_REQUESTS,
-    ANALYZE_WINDOW_SECONDS,
     UPLOAD_MAX_REQUESTS,
     UPLOAD_WINDOW_SECONDS,
     _reset_store,
@@ -158,7 +157,7 @@ class TestUploadEndpointRateLimit:
 
         for i in range(UPLOAD_MAX_REQUESTS):
             resp = self._upload()
-            assert resp.status_code == 200, f"Request {i+1} failed: {resp.text}"
+            assert resp.status_code == 200, f"Request {i + 1} failed: {resp.text}"
 
         resp = self._upload()
         assert resp.status_code == 429
@@ -187,7 +186,7 @@ class TestAnalyzeEndpointRateLimit:
 
         for i in range(ANALYZE_MAX_REQUESTS):
             resp = self._analyze()
-            assert resp.status_code == 200, f"Request {i+1} failed: {resp.text}"
+            assert resp.status_code == 200, f"Request {i + 1} failed: {resp.text}"
 
         resp = self._analyze()
         assert resp.status_code == 429
