@@ -76,7 +76,9 @@ class TestPrefilledThink:
 
 
 # ── N2: /dispatch audited ──────────────────────────────────────────────────
-def test_dispatch_is_audited(client, db, alice):
+def test_dispatch_is_audited(client, db, alice, monkeypatch):
+    from backend.config import settings
+    monkeypatch.setattr(settings, "overlord_routing_enabled", False)  # exercise the local path
     llm = MagicMock()
     llm.last_usage = None
     llm.last_error = None
@@ -87,7 +89,7 @@ def test_dispatch_is_audited(client, db, alice):
     assert r.status_code == 200
     ev = db.query(AuditEvent).filter_by(action="chat.dispatch").one()
     d = json.loads(ev.detail)
-    assert d["outcome"] == "completed" and ev.user_id == alice[0].id
+    assert d["outcome"] == "completed" and d["route"] == "local" and ev.user_id == alice[0].id
 
 
 # ── #8: persona + doc-scope auditing ───────────────────────────────────────
@@ -115,8 +117,9 @@ def test_document_scope_change_audited(client, db, alice):
     client.patch(f"/api/chat/conversations/{conv}/document-scope",
                  json={"document_scope": [{"type": "document", "id": 3}]}, cookies=t)
     ev = db.query(AuditEvent).filter_by(action="conversation.scope_change").one()
-    assert ev.resource_id == str(conv) or ev.resource_id == conv
-    assert json.loads(ev.doc_ids) == [3] if isinstance(ev.doc_ids, str) else ev.doc_ids == [3]
+    assert ev.resource_id == conv
+    assert json.loads(ev.doc_ids) == [3]
+    assert json.loads(ev.detail)["scope"] == [{"type": "document", "id": 3}]
 
 
 # ── #9: failure counter exposed ────────────────────────────────────────────
@@ -130,7 +133,7 @@ def test_audit_list_exposes_write_failures(client, db, admin, monkeypatch):
 def test_correlation_id_in_done_meta(client, db, alice):
     conv = _scoped(client, db, alice[1])
     r = _chat(client, conv, alice[1], _gen("ok [1]"))
-    done = [e for e in _events(r.text) if e.startswith("event: done")][0]
+    done = next(e for e in _events(r.text) if e.startswith("event: done"))
     meta = json.loads(done.split("data: ", 1)[1])
     d = json.loads(_chat_event(db).detail)
     assert meta["correlation_id"] == d["correlation_id"]

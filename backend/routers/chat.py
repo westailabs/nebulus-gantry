@@ -4,10 +4,11 @@ import logging
 import os
 import time
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictInt
 from sqlalchemy.orm import Session as DBSession
 
 from backend.config import settings
@@ -581,6 +582,8 @@ async def send_message(  # noqa: C901
                     assistant_msg.sources = json.dumps(citations)
                     chat.db.commit()
                 except Exception as e:
+                    # Roll back so the session stays usable for the audit row in finally.
+                    chat.db.rollback()
                     logger.warning(f"Failed to persist citations: {e}")
         except (GeneratorExit, asyncio.CancelledError):
             outcome = "client_aborted"
@@ -669,9 +672,15 @@ def set_conversation_persona(
     return conversation
 
 
+class ScopeItem(BaseModel):
+    """One document-scope entry; validated so bad input is a 422 before any commit."""
+    type: Literal["document", "collection"]
+    id: StrictInt
+
+
 class SetDocumentScopeRequest(BaseModel):
     """Request to set document scope for RAG."""
-    document_scope: list[dict] | None = None  # [{"type": "document"|"collection", "id": int}]
+    document_scope: list[ScopeItem] | None = Field(default=None, max_length=200)
 
 
 @router.patch("/conversations/{conversation_id}/document-scope", response_model=ConversationResponse)
@@ -688,18 +697,18 @@ def set_conversation_document_scope(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Serialize document scope as JSON
-    if request.document_scope:
-        conversation.document_scope = json.dumps(request.document_scope)
+    scope = [item.model_dump() for item in request.document_scope or []]
+    if scope:
+        conversation.document_scope = json.dumps(scope)
     else:
         conversation.document_scope = None
 
     chat.db.commit()
     chat.db.refresh(conversation)
-    scope = request.document_scope or []
     AuditService(chat.db).record(
         "conversation.scope_change", user=user, resource_type="conversation",
         resource_id=conversation_id, ip_address=client_ip(http_request),
-        doc_ids=[s_["id"] for s_ in scope if s_.get("type") == "document"],
+        doc_ids=[i["id"] for i in scope if i["type"] == "document"],
         detail={"scope": scope},
     )
     return conversation

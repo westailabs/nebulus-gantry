@@ -11,6 +11,7 @@ Provides:
 import csv
 import io
 import logging
+import math
 import os
 
 from sqlalchemy.orm import Session as DBSession
@@ -27,10 +28,23 @@ class RetrievalError(Exception):
 
 
 def _min_similarity() -> float:
-    try:
-        return float(os.getenv("GANTRY_MIN_SOURCE_SIMILARITY", "0") or 0)
-    except ValueError:
+    """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1]; 0 (the default) turns the floor off.
+
+    The recommended CPA-demo value is 0.42 (see .env.example and docs). Invalid or
+    non-finite values log a WARNING and fall back to 0 (off), never to "refuse all".
+    """
+    raw = (os.getenv("GANTRY_MIN_SOURCE_SIMILARITY") or "").strip()
+    if not raw:
         return 0.0
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("Invalid GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
+        return 0.0
+    if not math.isfinite(value):
+        logger.warning("Non-finite GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
+        return 0.0
+    return min(max(value, 0.0), 1.0)
 
 
 # Chunk settings: ~500 tokens ≈ 2000 chars, with 100 char overlap

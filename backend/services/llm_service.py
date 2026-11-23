@@ -48,6 +48,7 @@ class LLMService:
         self.base_url = get_llm_base_url()
         self.headers = _get_llm_headers()
         self.last_usage: dict | None = None
+        self.last_finish_reason: str | None = None
         # Out-of-band status for the last stream_chat call:
         # last_error: None | "empty_answer" | "connect_error" | "http_<code>" | "<ExceptionType>"
         self.last_error: str | None = None
@@ -77,6 +78,7 @@ class LLMService:
         self.last_usage = None
         self.last_error = None
         self.reasoning_leak_cleaned = None
+        self.last_finish_reason = None
         raw_parts: list[str] = []
         request_body = {
             "model": model or get_default_model(),
@@ -112,7 +114,9 @@ class LLMService:
                             if visible:
                                 emitted = emitted or bool(visible.strip())
                                 yield visible
-                    tail = think_filter.flush()
+                    # finish_reason=length before </think> means the held text is cut-off
+                    # reasoning, not an answer: drop it (prefill mode).
+                    tail = think_filter.flush(truncated=self.last_finish_reason == "length")
                     if tail:
                         emitted = emitted or bool(tail.strip())
                         yield tail
@@ -151,6 +155,8 @@ class LLMService:
         if chunk.get("usage"):
             self.last_usage = chunk["usage"]
         choices = chunk.get("choices") or [{}]
+        if choices[0].get("finish_reason"):
+            self.last_finish_reason = choices[0]["finish_reason"]
         return False, choices[0].get("delta", {}).get("content")
 
     async def chat(self, messages: list[dict], model: str | None = None) -> str:

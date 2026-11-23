@@ -102,9 +102,12 @@ class ThinkTagFilter:
             self._in_think = True
         return "".join(out)
 
-    def flush(self) -> str:
-        if self._prefill_pending:  # no closing tag: the held text was the answer
-            rest = strip_reasoning("".join(self._held) + self._buf)
+    def flush(self, truncated: bool = False) -> str:
+        """Return any held text. ``truncated``: the stream hit its token limit."""
+        if self._prefill_pending:
+            # No closing tag. If the model stopped normally, the held text was the
+            # answer; if it was cut off (finish_reason=length), it was reasoning.
+            rest = "" if truncated else strip_reasoning("".join(self._held) + self._buf)
             self._held, self._buf, self._prefill_pending, self._in_think = [], "", False, False
             return rest
         rest = "" if self._in_think else self._buf
