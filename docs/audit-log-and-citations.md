@@ -1,6 +1,6 @@
 # Audit log and structured citations
 
-Added on `feat/audit-log-citations` (not yet merged).
+Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
 
 ## Audit log
 - Table `audit_events` (created automatically). `user_id` is not a foreign key, so rows outlive user deletion.
@@ -8,7 +8,8 @@ Added on `feat/audit-log-citations` (not yet merged).
 - Recorded actions: `auth.login`, `auth.login_failed`, `auth.logout`, `auth.password_change`,
   `user.create`, `user.update` (`role_before`, `role_after`, `password_changed`; never the password),
   `user.delete`, `persona.create` / `persona.update` / `persona.delete` (system and user personas;
-  `detail.changed` lists the fields), `conversation.scope_change` (new document scope),
+  `detail.changed` lists the fields sent in the request), `conversation.scope_change` (the new
+  scope as a validated `[{type, id}]` list; malformed scopes are rejected with 422 before any change),
   `chat.dispatch` (the `/api/chat/dispatch` path, with outcome in `finally`), `document.upload`, `document.upload_failed`, `document.delete`,
   `document.view_source`, `chat.query`, `conversation.export` (json/pdf/excel/report),
   `conversation.bulk_export`, `audit.export` (`rows`, `total`, `truncated`).
@@ -21,8 +22,10 @@ Added on `feat/audit-log-citations` (not yet merged).
   during a refusal is recorded as `client_aborted`.
   Citations are not attached to failed answers, and long-term memory is updated only for `completed`.
 - CSV export neutralises spreadsheet formulas: cells starting with `= + - @ TAB CR` get a leading `'`.
-- Audit write failures never break a request. They are logged at ERROR and counted in-process.
-  `GET /api/admin/audit` returns the count as `audit_write_failures` (it resets on restart).
+- Audit write failures never break a request. A failed write is rolled back and retried once (so a
+  session left failed by earlier work doesn't lose the row). A write that still fails is logged at
+  ERROR with a traceback and counted in-process. `GET /api/admin/audit` returns the count as
+  `audit_write_failures`. The count is per worker process and resets on restart.
 
 ### Query text and privacy: what the flag does and does not cover
 - `GANTRY_AUDIT_STORE_QUERY_TEXT=true` stores query text **in the audit table only**. The default
@@ -38,12 +41,14 @@ Added on `feat/audit-log-citations` (not yet merged).
   `where` clause (collection ids OR document ids), so out-of-scope chunks can't crowd out in-scope ones.
 - Hits below `GANTRY_MIN_SOURCE_SIMILARITY` (default `0`, which turns the floor off) or without a
   document id are dropped. If nothing is left, the question is refused.
-  **Recommended for the CPA demo: `0.42`** (set in the demo env). Calibrated on 2026-11-22 against the
+  The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
+  floor off. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
+  `docker-compose.yml` default. Calibrated on 2026-11-22 against the
   SAMPLE corpus with Chroma's default embedding: on-topic top hits were 0.458–0.548, and generic
   off-topic questions were 0.334–0.412. A same-domain question about an absent client
   ("Acme Corp payroll tax", 0.456) still passes the floor, and the model has to say the documents
   don't cover it. Recalibrate whenever the corpus or the embedding model changes
-  (`cpa_demo_smoke.py calibrate`). The top chunks are numbered and placed in the system prompt, and the
+  (`scripts/cpa_demo_smoke.py calibrate`). The top chunks are numbered and placed in the system prompt, and the
   model is told to cite them as `[n]`.
 - The backend streams `event: sources` (`n, document_id, filename, chunk_index, similarity, snippet`)
   before the answer, includes `sources` in the `done` metadata, and saves them on the assistant message (`messages.sources`).
@@ -61,8 +66,10 @@ Added on `feat/audit-log-citations` (not yet merged).
   The cleaned text is what gets stored.
 - Templates that prefill `<think>`: set `GANTRY_REASONING_PREFILLED=true`. Output is then held
   until the first closing tag, so reasoning never reaches the client. If no closing tag arrives,
-  the held text is released at the end. The demo model (nemotron-bolt via llama-server) puts
-  reasoning in `reasoning_content` and no tags in content (checked with `cpa_demo_smoke.py probe`),
+  the held text is released at the end, unless the model hit its token limit
+  (`finish_reason=length`). In that case the held text is cut-off reasoning, so it's dropped and the
+  empty-answer notice is shown. The demo model (nemotron-bolt via llama-server) puts
+  reasoning in `reasoning_content` and no tags in content (checked with `scripts/cpa_demo_smoke.py probe`),
   so the demo leaves this off. A cleaned answer that is blank becomes the empty-answer notice.
 - An answer that comes back empty gets an explicit retry message instead of a blank bubble.
   Raw LLM exception text is not sent to the client.
