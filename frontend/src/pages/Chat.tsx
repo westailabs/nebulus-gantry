@@ -155,6 +155,15 @@ export function Chat() {
                     : msg
                 )
               );
+            } else if (event.type === 'replace') {
+              fullContent = event.content;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === tempAssistantMessageId
+                    ? { ...msg, content: fullContent }
+                    : msg
+                )
+              );
             } else if (event.type === 'sources') {
               streamSources = event.sources;
               setMessages((prev) =>

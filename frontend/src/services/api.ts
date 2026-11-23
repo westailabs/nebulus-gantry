@@ -41,6 +41,7 @@ import type {
 export type ChatStreamEvent =
   | { type: 'content'; content: string }
   | { type: 'sources'; sources: Citation[] }
+  | { type: 'replace'; content: string }
   | { type: 'done'; meta: MessageMeta };
 
 function auditQuery(filters: AuditFilters = {}): string {
@@ -191,6 +192,14 @@ export const chatApi = {
                 yield { type: 'sources', sources };
               } catch {
                 // Ignore malformed sources payload
+              }
+            } else if (eventName === 'replace') {
+              // Server removed leaked model reasoning; replace streamed text.
+              try {
+                const { content } = JSON.parse(eventData) as { content: string };
+                yield { type: 'replace', content };
+              } catch {
+                // Ignore malformed replace payload
               }
             }
             continue;

@@ -40,6 +40,18 @@ describe('citations API', () => {
     expect(events[2].type).toBe('done');
   });
 
+  it('yields a replace event when the server cleans leaked reasoning', async () => {
+    const sse =
+      `data: ${JSON.stringify({ content: 'thinking... answer' })}\n\n` +
+      `event: replace\ndata: ${JSON.stringify({ content: ' answer' })}\n\n` +
+      `event: done\ndata: ${JSON.stringify({ generation_time_ms: 5 })}\n\n`;
+    global.fetch = vi.fn().mockResolvedValue(streamResponse(sse));
+    const events = [];
+    for await (const e of chatApi.sendMessage(1, 'q')) events.push(e);
+    expect(events[1]).toEqual({ type: 'replace', content: ' answer' });
+    expect(events[2].type).toBe('done');
+  });
+
   it('fetches a document chunk', async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ text: 't' }) });
     await documentApi.getChunk(7, 2);
