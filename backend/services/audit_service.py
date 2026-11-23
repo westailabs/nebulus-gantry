@@ -38,7 +38,8 @@ _REDACTIONS = [
 ]
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
-# Count of audit writes that failed in this process (surfaced in the admin API).
+# Count of audit writes that failed in this process; returned by GET /api/admin/audit
+# as ``audit_write_failures`` (resets on restart).
 write_failures = 0
 
 

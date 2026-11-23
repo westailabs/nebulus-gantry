@@ -4,11 +4,12 @@ Personas Router for managing reusable personas.
 Endpoints for user persona CRUD operations.
 """
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session as DBSession
 
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
+from backend.services.audit_service import AuditService, client_ip
 from backend.services.persona_service import PersonaService
 from backend.schemas.persona import (
     PersonaCreate,
@@ -28,6 +29,7 @@ def get_persona_service(db: DBSession = Depends(get_db)) -> PersonaService:
 @router.post("", response_model=PersonaResponse)
 def create_persona(
     data: PersonaCreate,
+    http_request: Request,
     user=Depends(get_current_user),
     service: PersonaService = Depends(get_persona_service),
 ):
@@ -39,6 +41,10 @@ def create_persona(
         system_prompt=data.system_prompt,
         temperature=data.temperature,
         model_id=data.model_id,
+    )
+    AuditService(service.db).record(
+        "persona.create", user=user, resource_type="persona", resource_id=persona.id,
+        ip_address=client_ip(http_request), detail={"scope": "user", "name": persona.name, "changed": sorted(data.model_dump(exclude_unset=True))},
     )
     return _persona_to_response(persona)
 
@@ -70,6 +76,7 @@ def get_persona(
 def update_persona(
     persona_id: int,
     data: PersonaUpdate,
+    http_request: Request,
     user=Depends(get_current_user),
     service: PersonaService = Depends(get_persona_service),
 ):
@@ -88,12 +95,17 @@ def update_persona(
             status_code=404,
             detail="Persona not found or you don't have permission to edit it",
         )
+    AuditService(service.db).record(
+        "persona.update", user=user, resource_type="persona", resource_id=persona.id,
+        ip_address=client_ip(http_request), detail={"scope": "user", "name": persona.name, "changed": sorted(data.model_dump(exclude_unset=True))},
+    )
     return _persona_to_response(persona)
 
 
 @router.delete("/{persona_id}")
 def delete_persona(
     persona_id: int,
+    http_request: Request,
     user=Depends(get_current_user),
     service: PersonaService = Depends(get_persona_service),
 ):
@@ -103,6 +115,10 @@ def delete_persona(
             status_code=404,
             detail="Persona not found or you don't have permission to delete it",
         )
+    AuditService(service.db).record(
+        "persona.delete", user=user, resource_type="persona", resource_id=persona_id,
+        ip_address=client_ip(http_request), detail={"scope": "user"},
+    )
     return {"message": "Persona deleted"}
 
 

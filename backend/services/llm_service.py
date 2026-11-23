@@ -12,6 +12,11 @@ EMPTY_ANSWER_MESSAGE = (
 )
 
 
+def _reasoning_prefilled() -> bool:
+    """True when the model's chat template prefills <think> (only </think> is emitted)."""
+    return os.getenv("GANTRY_REASONING_PREFILLED", "false").lower() in ("true", "1", "yes")
+
+
 def _get_max_tokens() -> int | None:
     """Optional completion cap from NEBULUS_LLM_MAX_TOKENS (unset = server default)."""
     raw = os.getenv("NEBULUS_LLM_MAX_TOKENS")
@@ -84,7 +89,7 @@ class LLMService:
         if max_tokens:
             request_body["max_tokens"] = max_tokens
 
-        think_filter = ThinkTagFilter()
+        think_filter = ThinkTagFilter(assume_open=_reasoning_prefilled())
         emitted = False
 
         # Reasoning models can think for a while before the first answer token,

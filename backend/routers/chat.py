@@ -20,7 +20,7 @@ from backend.services.document_service import (
     format_sources_context,
     sources_to_citations,
 )
-from backend.services.llm_service import LLMService
+from backend.services.llm_service import EMPTY_ANSWER_MESSAGE, LLMService
 from backend.services.model_service import ModelService
 from backend.platform import get_default_model
 from backend.schemas.chat import (
@@ -453,6 +453,7 @@ async def send_message(  # noqa: C901
         outcome = "retrieval_error" if retrieval_error else "no_match"
 
         async def refuse():
+            nonlocal outcome
             start_time = time.monotonic()
             try:
                 yield f"data: {json.dumps({'content': message})}\n\n"
@@ -460,6 +461,9 @@ async def send_message(  # noqa: C901
                         "sources": [], "refused": True}
                 yield f"event: done\ndata: {json.dumps(meta)}\n\n"
                 chat.add_message(conversation_id, "assistant", message)
+            except (GeneratorExit, asyncio.CancelledError):
+                outcome = "client_aborted"
+                raise
             finally:
                 audit.record(
                     "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
@@ -534,6 +538,7 @@ async def send_message(  # noqa: C901
         start_time = time.monotonic()
         outcome = "client_aborted"  # until proven otherwise (disconnect/cancel)
         error_type = None
+        message_id = None
         meta: dict = {}
         try:
             if citations:
@@ -548,6 +553,9 @@ async def send_message(  # noqa: C901
             cleaned = getattr(llm, "reasoning_leak_cleaned", None)
             if isinstance(cleaned, str):
                 # Reasoning leaked before an orphan </think>: replace what was streamed.
+                # Never replace with blank text (Plumb N1).
+                if not cleaned.strip():
+                    cleaned = EMPTY_ANSWER_MESSAGE
                 full_response = cleaned
                 yield f"event: replace\ndata: {json.dumps({'content': cleaned})}\n\n"
 
@@ -560,12 +568,14 @@ async def send_message(  # noqa: C901
 
             generation_time_ms = int((time.monotonic() - start_time) * 1000)
             meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
+            meta["correlation_id"] = correlation_id
             if rag_scoped:
                 meta["sources"] = [] if llm_failed else citations
             yield f"event: done\ndata: {json.dumps(meta)}\n\n"
 
             # Save assistant response after streaming completes
             assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
+            message_id = assistant_msg.id
             if citations and not llm_failed:
                 try:
                     assistant_msg.sources = json.dumps(citations)
@@ -585,6 +595,7 @@ async def send_message(  # noqa: C901
                 doc_ids=[c["document_id"] for c in citations], query_text=request.content, ip_address=ip,
                 detail={"outcome": outcome, "error_type": error_type, "refused": False,
                         "scoped": rag_scoped, "model": llm_model, "correlation_id": correlation_id,
+                        "message_id": message_id,
                         "generation_time_ms": int((time.monotonic() - start_time) * 1000),
                         "completion_tokens": meta.get("completion_tokens")},
             )
@@ -667,6 +678,7 @@ class SetDocumentScopeRequest(BaseModel):
 def set_conversation_document_scope(
     conversation_id: int,
     request: SetDocumentScopeRequest,
+    http_request: Request,
     user=Depends(get_current_user),
     chat: ChatService = Depends(get_chat_service),
 ):
@@ -683,6 +695,13 @@ def set_conversation_document_scope(
 
     chat.db.commit()
     chat.db.refresh(conversation)
+    scope = request.document_scope or []
+    AuditService(chat.db).record(
+        "conversation.scope_change", user=user, resource_type="conversation",
+        resource_id=conversation_id, ip_address=client_ip(http_request),
+        doc_ids=[s_["id"] for s_ in scope if s_.get("type") == "document"],
+        detail={"scope": scope},
+    )
     return conversation
 
 
@@ -690,15 +709,28 @@ def set_conversation_document_scope(
 
 
 @router.post("/dispatch")
-async def dispatch_message(
+async def dispatch_message(  # noqa: C901
     request: DispatchRequest,
+    http_request: Request,
     user=Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     """Route a message through Overlord's dispatch layer.
 
     Returns a Server-Sent Events stream of DispatchEvent objects.
     Falls back to direct LLM if Overlord routing is disabled.
+    Every call is audited as ``chat.dispatch`` (outcome recorded in finally).
     """
+    audit = AuditService(db)
+    ip = client_ip(http_request)
+
+    def _audit(outcome: str, error_type: str | None, routed: str, start: float) -> None:
+        audit.record(
+            "chat.dispatch", user=user, query_text=request.user_message, ip_address=ip,
+            detail={"outcome": outcome, "error_type": error_type, "route": routed,
+                    "generation_time_ms": int((time.monotonic() - start) * 1000)},
+        )
+
     if not settings.overlord_routing_enabled:
         # Fallback: route directly to LLM without Overlord
         from backend.schemas.dispatch import content_event, error_event, result_event
@@ -714,17 +746,29 @@ async def dispatch_message(
         async def fallback_generate():
             start_time = time.monotonic()
             full_text = ""
+            outcome, error_type = "client_aborted", None
             try:
-                async for chunk in llm.stream_chat(messages):
-                    full_text += chunk
-                    yield content_event(chunk, source="local").to_sse()
-                yield result_event("", source="local").to_sse()
-            except Exception as e:
-                yield error_event(str(e)).to_sse()
+                try:
+                    async for chunk in llm.stream_chat(messages):
+                        full_text += chunk
+                        yield content_event(chunk, source="local").to_sse()
+                    yield result_event("", source="local").to_sse()
+                    last_error = getattr(llm, "last_error", None)
+                    if isinstance(last_error, str):
+                        outcome, error_type = "llm_error", last_error
+                    else:
+                        outcome = "completed"
+                except (GeneratorExit, asyncio.CancelledError):
+                    raise
+                except Exception as e:
+                    outcome, error_type = "error", type(e).__name__
+                    yield error_event("LLM request failed").to_sse()
 
-            generation_time_ms = int((time.monotonic() - start_time) * 1000)
-            meta = _build_token_meta(llm, messages, full_text, generation_time_ms)
-            yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+                generation_time_ms = int((time.monotonic() - start_time) * 1000)
+                meta = _build_token_meta(llm, messages, full_text, generation_time_ms)
+                yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+            finally:
+                _audit(outcome, error_type, "local", start_time)
 
         return StreamingResponse(fallback_generate(), media_type="text/event-stream")
 
@@ -734,8 +778,19 @@ async def dispatch_message(
     router_svc = get_conversation_router()
 
     async def generate():
-        async for event in router_svc.route_message(request):
-            yield event.to_sse()
-        yield "data: [DONE]\n\n"
+        start_time = time.monotonic()
+        outcome, error_type = "client_aborted", None
+        try:
+            async for event in router_svc.route_message(request):
+                yield event.to_sse()
+            yield "data: [DONE]\n\n"
+            outcome = "completed"
+        except (GeneratorExit, asyncio.CancelledError):
+            raise
+        except Exception as e:
+            outcome, error_type = "error", type(e).__name__
+            raise
+        finally:
+            _audit(outcome, error_type, "overlord", start_time)
 
     return StreamingResponse(generate(), media_type="text/event-stream")
