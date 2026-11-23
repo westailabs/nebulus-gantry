@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -85,18 +86,29 @@ OFF_TOPIC = [
 ]
 
 
-def calibrate():
+def _sample_collection():
     cols = req("GET", "/api/documents/collections")
     cols = cols.get("collections", cols) if isinstance(cols, dict) else cols
-    col = [c for c in cols if c["name"].startswith("SAMPLE Clients")][-1]
-    conv = req("POST", "/api/chat/conversations", {})
-    req("PATCH", f"/api/chat/conversations/{conv['id']}/document-scope",
-        {"document_scope": [{"type": "collection", "id": col["id"]}]})
+    matches = [c for c in cols if c["name"].startswith("SAMPLE Clients")]
+    if not matches:
+        sys.exit("No 'SAMPLE Clients' collection on this instance. Run 'feature' once first "
+                 "to upload the synthetic SAMPLE_* documents.")
+    return matches[-1]
+
+
+def calibrate():
+    """Raw similarities via POST /api/documents/search, which applies no floor, so the
+    margin is measurable even while GANTRY_MIN_SOURCE_SIMILARITY is active. Read-only;
+    makes no LLM calls."""
+    col = _sample_collection()
     for label, qs in (("ON ", ON_TOPIC), ("OFF", OFF_TOPIC)):
         for q in qs:
-            c, s, m, dt = chat(conv["id"], q)
-            sims = [x["similarity"] for x in (s or [])]
+            res = req("POST", "/api/documents/search",
+                      {"query": q, "collection_ids": [col["id"]], "top_k": 3})["results"]
+            sims = [round(x["similarity"], 4) for x in res]
             print(f"{label} top={max(sims) if sims else None} sims={sims} q={q[:50]!r}")
+    print("Pick a floor between the lowest ON top and the highest OFF top; set it as "
+          "GANTRY_MIN_SOURCE_SIMILARITY in the instance env.")
 
 
 def probe():
@@ -116,17 +128,29 @@ def probe():
           f"content_has_open={'<think>' in low} content_has_close={'</think>' in low} content={content[:80]!r}")
 
 
+def _is_loopback(url: str) -> bool:
+    host = urllib.parse.urlparse(url).hostname or ""
+    return host in ("localhost", "127.0.0.1", "::1")
+
+
 def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "basic"
+    args = [a for a in sys.argv[1:] if a != "--yes"]
+    mode = args[0] if args else "basic"
+    if mode not in ("basic", "feature", "calibrate", "probe"):
+        sys.exit(f"unknown mode {mode!r}; use basic | feature | calibrate | probe [--yes]")
     if mode == "probe":
         return probe()
+    print(f"target: {BASE} mode: {mode}")
+    if mode == "feature" and not _is_loopback(BASE) and "--yes" not in sys.argv:
+        sys.exit("feature mode creates collections, uploads, conversations and exports on the "
+                 "target. It isn't loopback; re-run with --yes if that's intended.")
     req("POST", "/api/auth/login", {"email": EMAIL, "password": PW_FILE.read_text().strip()})
     print("login ok; me:", req("GET", "/api/auth/me").get("email"))
-    conv = req("POST", "/api/chat/conversations", {})
-    c, s, m, dt = chat(conv["id"], "In one sentence, what does a CPA firm do?")
-    print(f"basic chat {dt}s tokens/s={m and m.get('tokens_per_second')} answer={c[:300]!r}")
     if mode == "calibrate":
         return calibrate()
+    conv = req("POST", "/api/chat/conversations", {})
+    c, _, m, dt = chat(conv["id"], "In one sentence, what does a CPA firm do?")
+    print(f"basic chat {dt}s tokens/s={m and m.get('tokens_per_second')} answer={c[:300]!r}")
     if mode != "feature":
         return
     col = req("POST", "/api/documents/collections", {"name": "SAMPLE Clients (synthetic)"})
