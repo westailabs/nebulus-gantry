@@ -4,14 +4,20 @@ Records who did what and when (logins, uploads, queries, source views,
 exports). Recording never raises: an audit failure is logged but must not
 break the user's request.
 
-Query text is stored only when ``GANTRY_AUDIT_STORE_QUERY_TEXT`` is truthy
-(default off). With it off, only the query length is kept.
+Query text is stored *in the audit table* only when
+``GANTRY_AUDIT_STORE_QUERY_TEXT`` is truthy (default off); with it off only
+the query length is kept. The flag does NOT control chat history
+(``messages``) or long-term memory -- see docs/audit-log-and-citations.md.
+Stored query text is redacted (SSN/EIN/email) unless
+``GANTRY_AUDIT_REDACT=false``.
 """
 import csv
 import io
 import json
 import logging
 import os
+import re
+from datetime import timezone
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -23,6 +29,45 @@ CSV_COLUMNS = [
     "id", "timestamp", "user_id", "user_email", "action", "resource_type",
     "resource_id", "doc_ids", "query_text", "detail", "ip_address",
 ]
+
+
+_REDACTIONS = [
+    (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
+    (re.compile(r"\b\d{2}-\d{7}\b"), "[EIN]"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "[EMAIL]"),
+]
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+# Count of audit writes that failed in this process (surfaced in the admin API).
+write_failures = 0
+
+
+def redact(text: str) -> str:
+    for pattern, repl in _REDACTIONS:
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _redact_enabled() -> bool:
+    return os.getenv("GANTRY_AUDIT_REDACT", "true").lower() in ("true", "1", "yes")
+
+
+def _safe_cell(value) -> str:
+    """Neutralise spreadsheet formula injection (OWASP CSV injection)."""
+    if value is None:
+        return ""
+    text = str(value)
+    if text.startswith(_FORMULA_PREFIXES):
+        return "'" + text
+    return text
+
+
+def _iso_utc(dt) -> str | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:  # SQLite drops tzinfo; values are written in UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat()
 
 
 def store_query_text_enabled() -> bool:
@@ -51,7 +96,7 @@ class AuditService:
             stored_query = None
             if query_text is not None:
                 if store_query_text_enabled():
-                    stored_query = query_text
+                    stored_query = redact(query_text) if _redact_enabled() else query_text
                 else:
                     detail["query_chars"] = len(query_text)
             event = AuditEvent(
@@ -68,7 +113,9 @@ class AuditService:
             self.db.add(event)
             self.db.commit()
         except Exception as e:  # never break the request because of auditing
-            logger.warning("Audit record failed for %s: %s", action, e)
+            global write_failures
+            write_failures += 1
+            logger.error("AUDIT WRITE FAILED for %s (%d failures so far): %s", action, write_failures, e)
             try:
                 self.db.rollback()
             except Exception:
@@ -94,7 +141,7 @@ class AuditService:
 def event_to_dict(e: AuditEvent) -> dict:
     return {
         "id": e.id,
-        "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+        "timestamp": _iso_utc(e.timestamp),
         "user_id": e.user_id,
         "user_email": e.user_email,
         "action": e.action,
@@ -113,11 +160,11 @@ def events_to_csv(events: list[AuditEvent]) -> str:
     w.writerow(CSV_COLUMNS)
     for e in events:
         d = event_to_dict(e)
-        w.writerow([
+        w.writerow([_safe_cell(v) for v in (
             d["id"], d["timestamp"], d["user_id"], d["user_email"], d["action"], d["resource_type"],
-            d["resource_id"], ";".join(str(i) for i in d["doc_ids"]), d["query_text"] or "",
-            json.dumps(d["detail"]) if d["detail"] else "", d["ip_address"] or "",
-        ])
+            d["resource_id"], ";".join(str(i) for i in d["doc_ids"]), d["query_text"],
+            json.dumps(d["detail"]) if d["detail"] else "", d["ip_address"],
+        )])
     return buf.getvalue()
 
 

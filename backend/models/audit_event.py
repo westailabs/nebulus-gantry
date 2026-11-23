@@ -16,7 +16,7 @@ class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True, nullable=False)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), index=True, nullable=False)
     user_id = Column(Integer, nullable=True, index=True)
     user_email = Column(String(255), nullable=True)
     action = Column(String(64), nullable=False, index=True)

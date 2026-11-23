@@ -368,8 +368,10 @@ class TestDocumentServiceSources:
     def test_retrieve_sources_filters_scope(self, db):
         from backend.services.document_service import DocumentService
         svc = DocumentService(db)
-        with patch.object(svc, "search_documents", return_value=SOURCES):
+        # Scope is enforced in the vector query itself (Plumb review, PR #4).
+        with patch.object(svc, "_search", return_value=[s for s in SOURCES if s["document_id"] == 9]) as m:
             out = svc.retrieve_sources(1, "q", [{"type": "document", "id": 9}], top_k=3)
+        assert m.call_args[0][2] == {"document_id": {"$in": [9]}}
         assert [s["document_id"] for s in out] == [9]
 
     def test_get_chunk_text(self, db):

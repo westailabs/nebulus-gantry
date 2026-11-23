@@ -1,7 +1,9 @@
+import asyncio
 import json
 import logging
 import os
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
@@ -13,6 +15,11 @@ from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
 from backend.services.audit_service import AuditService, client_ip
 from backend.services.chat_service import ChatService
+from backend.services.document_service import (
+    RetrievalError,
+    format_sources_context,
+    sources_to_citations,
+)
 from backend.services.llm_service import LLMService
 from backend.services.model_service import ModelService
 from backend.platform import get_default_model
@@ -34,6 +41,12 @@ NO_SOURCE_MESSAGE = (
     "I couldn't find anything about that in the selected documents, so I "
     "won't guess. Try rephrasing, or check that the right client documents "
     "are in scope."
+)
+
+
+RETRIEVAL_ERROR_MESSAGE = (
+    "Document search is unavailable right now, so I can't answer from your "
+    "documents. Please try again shortly or contact your administrator."
 )
 
 
@@ -408,11 +421,10 @@ async def send_message(  # noqa: C901
     ltm_context = build_ltm_context(similar_messages, related_facts)
 
     # --- RAG: Query document knowledge vault ---
-    from backend.services.document_service import format_sources_context, sources_to_citations
-
     rag_context = ""
     rag_scoped = bool(conversation.document_scope)
     citations: list[dict] = []
+    retrieval_error = False
     if rag_scoped:
         try:
             document_service = _create_document_service(db)
@@ -425,25 +437,36 @@ async def send_message(  # noqa: C901
             )
             citations = sources_to_citations(results)
             rag_context = format_sources_context(results)
+        except RetrievalError as e:
+            logger.error(f"Document retrieval failed: {e}")
+            retrieval_error = True
         except Exception as e:
-            logger.warning(f"RAG context build failed: {e}")
-    refused = rag_scoped and not citations and _refuse_without_sources()
+            logger.error(f"RAG context build failed: {e}")
+            retrieval_error = True
+    refused = rag_scoped and (retrieval_error or (not citations and _refuse_without_sources()))
     audit = AuditService(db)
     ip = client_ip(http_request)
+    correlation_id = uuid.uuid4().hex[:12]
 
     if refused:
+        message = RETRIEVAL_ERROR_MESSAGE if retrieval_error else NO_SOURCE_MESSAGE
+        outcome = "retrieval_error" if retrieval_error else "no_match"
+
         async def refuse():
             start_time = time.monotonic()
-            yield f"data: {json.dumps({'content': NO_SOURCE_MESSAGE})}\n\n"
-            meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
-                    "sources": [], "refused": True}
-            yield f"event: done\ndata: {json.dumps(meta)}\n\n"
-            chat.add_message(conversation_id, "assistant", NO_SOURCE_MESSAGE)
-            audit.record(
-                "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
-                doc_ids=[], query_text=request.content, ip_address=ip,
-                detail={"refused": True, "scoped": True, "model": None},
-            )
+            try:
+                yield f"data: {json.dumps({'content': message})}\n\n"
+                meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
+                        "sources": [], "refused": True}
+                yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+                chat.add_message(conversation_id, "assistant", message)
+            finally:
+                audit.record(
+                    "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+                    doc_ids=[], query_text=request.content, ip_address=ip,
+                    detail={"outcome": outcome, "refused": True, "retrieval_error": retrieval_error,
+                            "scoped": True, "model": None, "correlation_id": correlation_id},
+                )
 
         return StreamingResponse(refuse(), media_type="text/event-stream")
 
@@ -506,39 +529,68 @@ async def send_message(  # noqa: C901
     llm = LLMService()
     llm_model = request.model or get_default_model()
 
-    async def generate():
+    async def generate():  # noqa: C901
         full_response = ""
         start_time = time.monotonic()
-        if citations:
-            # Structured citations first, so the UI can render clickable sources.
-            yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
-        async for chunk in llm.stream_chat(
-            llm_messages, model=llm_model, temperature=persona_temperature
-        ):
-            full_response += chunk
-            yield f"data: {json.dumps({'content': chunk})}\n\n"
+        outcome = "client_aborted"  # until proven otherwise (disconnect/cancel)
+        error_type = None
+        meta: dict = {}
+        try:
+            if citations:
+                # Structured citations first, so the UI can render clickable sources.
+                yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
+            async for chunk in llm.stream_chat(
+                llm_messages, model=llm_model, temperature=persona_temperature
+            ):
+                full_response += chunk
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
 
-        generation_time_ms = int((time.monotonic() - start_time) * 1000)
-        meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
-        if rag_scoped:
-            meta["sources"] = citations
-        yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+            cleaned = getattr(llm, "reasoning_leak_cleaned", None)
+            if isinstance(cleaned, str):
+                # Reasoning leaked before an orphan </think>: replace what was streamed.
+                full_response = cleaned
+                yield f"event: replace\ndata: {json.dumps({'content': cleaned})}\n\n"
 
-        # Save assistant response after streaming completes
-        assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
-        if citations:
-            try:
-                assistant_msg.sources = json.dumps(citations)
-                chat.db.commit()
-            except Exception as e:
-                logger.warning(f"Failed to persist citations: {e}")
-        audit.record(
-            "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
-            doc_ids=[c["document_id"] for c in citations], query_text=request.content, ip_address=ip,
-            detail={"refused": False, "scoped": rag_scoped, "model": llm_model,
-                    "generation_time_ms": generation_time_ms,
-                    "completion_tokens": meta.get("completion_tokens")},
-        )
+            last_error = getattr(llm, "last_error", None)
+            llm_failed = isinstance(last_error, str)
+            if llm_failed:
+                error_type = last_error
+            outcome = ("empty_answer" if last_error == "empty_answer" else "llm_error") if llm_failed \
+                else "completed"
+
+            generation_time_ms = int((time.monotonic() - start_time) * 1000)
+            meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
+            if rag_scoped:
+                meta["sources"] = [] if llm_failed else citations
+            yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+
+            # Save assistant response after streaming completes
+            assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
+            if citations and not llm_failed:
+                try:
+                    assistant_msg.sources = json.dumps(citations)
+                    chat.db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to persist citations: {e}")
+        except (GeneratorExit, asyncio.CancelledError):
+            outcome = "client_aborted"
+            raise
+        except Exception as e:
+            outcome = "error"
+            error_type = type(e).__name__
+            raise
+        finally:
+            audit.record(
+                "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+                doc_ids=[c["document_id"] for c in citations], query_text=request.content, ip_address=ip,
+                detail={"outcome": outcome, "error_type": error_type, "refused": False,
+                        "scoped": rag_scoped, "model": llm_model, "correlation_id": correlation_id,
+                        "generation_time_ms": int((time.monotonic() - start_time) * 1000),
+                        "completion_tokens": meta.get("completion_tokens")},
+            )
+
+        if outcome != "completed":
+            return
 
         # --- LTM: Update long-term memory asynchronously ---
         # Embed user message into ChromaDB

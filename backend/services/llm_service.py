@@ -43,8 +43,14 @@ class LLMService:
         self.base_url = get_llm_base_url()
         self.headers = _get_llm_headers()
         self.last_usage: dict | None = None
+        # Out-of-band status for the last stream_chat call:
+        # last_error: None | "empty_answer" | "connect_error" | "http_<code>" | "<ExceptionType>"
+        self.last_error: str | None = None
+        # Set when an orphan </think> showed the streamed text included reasoning;
+        # holds the cleaned answer the caller should show/store instead.
+        self.reasoning_leak_cleaned: str | None = None
 
-    async def stream_chat(
+    async def stream_chat(  # noqa: C901
         self,
         messages: list[dict],
         model: str | None = None,
@@ -64,6 +70,9 @@ class LLMService:
         total_tokens).
         """
         self.last_usage = None
+        self.last_error = None
+        self.reasoning_leak_cleaned = None
+        raw_parts: list[str] = []
         request_body = {
             "model": model or get_default_model(),
             "messages": messages,
@@ -93,6 +102,7 @@ class LLMService:
                         if done:
                             break
                         if content:
+                            raw_parts.append(content)
                             visible = think_filter.feed(content)
                             if visible:
                                 emitted = emitted or bool(visible.strip())
@@ -101,14 +111,22 @@ class LLMService:
                     if tail:
                         emitted = emitted or bool(tail.strip())
                         yield tail
+                    if think_filter.saw_orphan_close:
+                        self.reasoning_leak_cleaned = strip_reasoning("".join(raw_parts))
+                        emitted = bool(self.reasoning_leak_cleaned.strip())
                     if not emitted:
+                        self.last_error = "empty_answer"
                         yield EMPTY_ANSWER_MESSAGE
             except httpx.HTTPStatusError as e:
+                self.last_error = f"http_{e.response.status_code}"
                 yield f"[Error: LLM service returned {e.response.status_code}]"
             except httpx.ConnectError:
+                self.last_error = "connect_error"
                 yield "[Error: Could not connect to LLM service. Is the LLM service running?]"
             except Exception as e:
-                yield f"[Error: {str(e)}]"
+                # Don't echo raw exception text to the client.
+                self.last_error = type(e).__name__
+                yield "[Error: LLM request failed]"
 
     def _parse_sse_line(self, line: str) -> tuple[bool, str | None]:
         """Parse one SSE line. Returns (done, visible_content_delta).

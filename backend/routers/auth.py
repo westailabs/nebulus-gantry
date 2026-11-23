@@ -80,6 +80,7 @@ def get_me(user=Depends(get_current_user)):
 @router.post("/change-password")
 def change_password(
     data: ChangePasswordRequest,
+    request: Request,
     user=Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
@@ -91,4 +92,8 @@ def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     user.password_hash = hash_password(data.new_password)
     db.commit()
+    AuditService(db).record(
+        "auth.password_change", user=user, resource_type="user", resource_id=user.id,
+        ip_address=client_ip(request),
+    )
     return {"message": "Password changed successfully"}

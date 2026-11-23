@@ -11,6 +11,7 @@ Provides:
 import csv
 import io
 import logging
+import os
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -19,6 +20,18 @@ from backend.models.document import Document
 from backend.services.chroma_pool import get_vector_client
 
 logger = logging.getLogger(__name__)
+
+
+class RetrievalError(Exception):
+    """Document search could not run (vector store unavailable or failed)."""
+
+
+def _min_similarity() -> float:
+    try:
+        return float(os.getenv("GANTRY_MIN_SOURCE_SIMILARITY", "0") or 0)
+    except ValueError:
+        return 0.0
+
 
 # Chunk settings: ~500 tokens ≈ 2000 chars, with 100 char overlap
 CHUNK_SIZE = 2000
@@ -404,53 +417,42 @@ class DocumentService:
         collection_ids: list[int] | None = None,
         top_k: int = 5,
     ) -> list[dict]:
-        """Search documents using semantic search."""
-        if not self._chroma_available or not self._vector_client:
-            return []
-
+        """Search documents using semantic search (errors -> empty list)."""
+        where = {"collection_id": {"$in": collection_ids}} if collection_ids else None
         try:
-            collection_name = self._get_collection_name(user_id)
-
-            # Build filter for collection_ids if provided
-            where_filter = None
-            if collection_ids:
-                where_filter = {"collection_id": {"$in": collection_ids}}
-
-            results = self._vector_client.search(
-                collection_name, query, n_results=top_k, where=where_filter
-            )
-
-            formatted_results = []
-            if results["documents"] and results["documents"][0]:
-                documents = results["documents"][0]
-                distances = (
-                    results["distances"][0]
-                    if results.get("distances")
-                    else [0] * len(documents)
-                )
-                metadatas = (
-                    results["metadatas"][0]
-                    if results.get("metadatas")
-                    else [{}] * len(documents)
-                )
-
-                for i, doc in enumerate(documents):
-                    meta = metadatas[i] if i < len(metadatas) else {}
-                    # Convert distance to similarity (lower distance = higher similarity)
-                    similarity = 1.0 / (1.0 + (distances[i] if i < len(distances) else 0))
-                    formatted_results.append({
-                        "document_id": meta.get("document_id", 0),
-                        "filename": meta.get("filename", "Unknown"),
-                        "chunk_text": doc,
-                        "similarity": similarity,
-                        "chunk_index": meta.get("chunk_index", 0),
-                    })
-
-            return formatted_results
-
-        except Exception as e:
+            return self._search(user_id, query, where, top_k)
+        except RetrievalError as e:
             logger.error(f"Failed to search documents: {e}")
             return []
+
+    def _search(self, user_id: int, query: str, where: dict | None, top_k: int) -> list[dict]:
+        """Semantic search; raises RetrievalError if the vector store is unusable."""
+        if not self._chroma_available or not self._vector_client:
+            raise RetrievalError("vector store unavailable")
+        try:
+            results = self._vector_client.search(
+                self._get_collection_name(user_id), query, n_results=top_k, where=where
+            )
+        except Exception as e:
+            raise RetrievalError(f"vector search failed: {type(e).__name__}") from e
+
+        formatted_results = []
+        if results.get("documents") and results["documents"][0]:
+            documents = results["documents"][0]
+            distances = results["distances"][0] if results.get("distances") else [0] * len(documents)
+            metadatas = results["metadatas"][0] if results.get("metadatas") else [{}] * len(documents)
+            for i, doc in enumerate(documents):
+                meta = (metadatas[i] if i < len(metadatas) else {}) or {}
+                # Convert distance to similarity (lower distance = higher similarity)
+                similarity = 1.0 / (1.0 + (distances[i] if i < len(distances) else 0))
+                formatted_results.append({
+                    "document_id": meta.get("document_id", 0),
+                    "filename": meta.get("filename", "Unknown"),
+                    "chunk_text": doc,
+                    "similarity": similarity,
+                    "chunk_index": meta.get("chunk_index", 0),
+                })
+        return formatted_results
 
     def retrieve_sources(
         self,
@@ -469,28 +471,34 @@ class DocumentService:
 
         Returns:
             List of result dicts (document_id, filename, chunk_text,
-            similarity, chunk_index), best first.
+            similarity, chunk_index), best first. Hits below
+            GANTRY_MIN_SOURCE_SIMILARITY or without a document_id are dropped.
+
+        Raises:
+            RetrievalError: if the vector store is unavailable or the search fails.
         """
-        collection_ids = []
-        document_ids = []
+        collection_ids: list[int] = []
+        document_ids: list[int] = []
+        for scope in document_scope or []:
+            if scope.get("type") == "collection":
+                collection_ids.append(scope["id"])
+            elif scope.get("type") == "document":
+                document_ids.append(scope["id"])
 
-        if document_scope:
-            for scope in document_scope:
-                if scope.get("type") == "collection":
-                    collection_ids.append(scope["id"])
-                elif scope.get("type") == "document":
-                    document_ids.append(scope["id"])
-
-        results = self.search_documents(
-            user_id=user_id,
-            query=query,
-            collection_ids=collection_ids if collection_ids else None,
-            top_k=top_k * 2,  # Get more to filter by document_ids
-        )
-
+        # Scope is enforced inside the vector search (collections OR documents).
+        clauses = []
+        if collection_ids:
+            clauses.append({"collection_id": {"$in": collection_ids}})
         if document_ids:
-            results = [r for r in results if r["document_id"] in document_ids]
+            clauses.append({"document_id": {"$in": document_ids}})
+        where = None if not clauses else clauses[0] if len(clauses) == 1 else {"$or": clauses}
 
+        results = self._search(user_id, query, where, top_k)
+        floor = _min_similarity()
+        results = [
+            r for r in results
+            if r.get("document_id") and r.get("similarity", 0.0) >= floor
+        ]
         return results[:top_k]
 
     def build_rag_context(
@@ -501,7 +509,11 @@ class DocumentService:
         top_k: int = 3,
     ) -> str:
         """Build RAG context (legacy string form) from document search results."""
-        results = self.retrieve_sources(user_id, query, document_scope, top_k)
+        try:
+            results = self.retrieve_sources(user_id, query, document_scope, top_k)
+        except RetrievalError as e:
+            logger.error(f"RAG retrieval failed: {e}")
+            return ""
         return format_sources_context(results)
 
     def get_chunk_text(self, user_id: int, document_id: int, chunk_index: int) -> str | None:

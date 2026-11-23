@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -47,6 +47,9 @@ def shutdown_docker_service() -> None:
     _service_manager.close()
 
 
+MAX_AUDIT_EXPORT_ROWS = 100_000
+
+
 def require_admin(user=Depends(get_current_user)):
     """Dependency that ensures the current user has admin role.
 
@@ -73,6 +76,7 @@ def list_users(
 @router.post("/users", response_model=UserAdminResponse, status_code=201)
 def create_user(
     request: CreateUserRequest,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -88,6 +92,10 @@ def create_user(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already exists")
+    AuditService(db).record(
+        "user.create", user=admin, resource_type="user", resource_id=user.id,
+        ip_address=client_ip(http_request), detail={"email": user.email, "role": user.role},
+    )
     return user
 
 
@@ -95,6 +103,7 @@ def create_user(
 def update_user(
     user_id: int,
     request: UpdateUserRequest,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -102,6 +111,7 @@ def update_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    role_before = user.role
     if request.display_name is not None:
         user.display_name = request.display_name
     if request.role is not None:
@@ -110,12 +120,20 @@ def update_user(
         user.password_hash = hash_password(request.password)
     db.commit()
     db.refresh(user)
+    AuditService(db).record(
+        "user.update", user=admin, resource_type="user", resource_id=user.id,
+        ip_address=client_ip(http_request),
+        detail={"email": user.email, "role_before": role_before, "role_after": user.role,
+                "password_changed": request.password is not None,
+                "display_name_changed": request.display_name is not None},
+    )
     return user
 
 
 @router.delete("/users/{user_id}", response_model=DeleteUserResponse)
 def delete_user(
     user_id: int,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -127,8 +145,13 @@ def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     # Delete associated sessions first to avoid FK constraint violations
     db.query(Session).filter(Session.user_id == user_id).delete()
+    email, role = user.email, user.role
     db.delete(user)
     db.commit()
+    AuditService(db).record(
+        "user.delete", user=admin, resource_type="user", resource_id=user_id,
+        ip_address=client_ip(http_request), detail={"email": email, "role": role},
+    )
     return DeleteUserResponse(message=f"User {user.email} deleted")
 
 
@@ -277,11 +300,12 @@ def export_audit_csv(
 ):
     """Download audit events as CSV (up to 100k rows). The export is itself audited."""
     svc = AuditService(db)
-    events, total = svc.list_events(action=action, user_id=user_id, limit=100_000)
+    events, total = svc.list_events(action=action, user_id=user_id, limit=MAX_AUDIT_EXPORT_ROWS)
     body = events_to_csv(events)
     svc.record("audit.export", user=admin, ip_address=client_ip(request),
-               detail={"rows": len(events), "action_filter": action, "user_filter": user_id})
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+               detail={"rows": len(events), "total": total, "truncated": total > len(events),
+                       "action_filter": action, "user_filter": user_id})
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     return Response(
         content=body,
         media_type="text/csv",
