@@ -1,0 +1,18 @@
+# Build context for backend/Dockerfile (COPY . /app/backend/).
+# Never bake runtime data, generated keys, databases or env files into the image.
+data/
+**/data/
+.secret_key*
+**/.secret_key*
+*.db
+**/*.db
+*.db-journal
+.env*
+**/.env*
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+**/.pytest_cache/
+.venv/
+venv/

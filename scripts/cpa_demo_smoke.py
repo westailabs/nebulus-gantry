@@ -101,12 +101,17 @@ def calibrate():
     margin is measurable even while GANTRY_MIN_SOURCE_SIMILARITY is active. Read-only;
     makes no LLM calls."""
     col = _sample_collection()
+    any_results = False
     for label, qs in (("ON ", ON_TOPIC), ("OFF", OFF_TOPIC)):
         for q in qs:
             res = req("POST", "/api/documents/search",
                       {"query": q, "collection_ids": [col["id"]], "top_k": 3})["results"]
             sims = [round(x["similarity"], 4) for x in res]
+            any_results = any_results or bool(sims)
             print(f"{label} top={max(sims) if sims else None} sims={sims} q={q[:50]!r}")
+    if not any_results:
+        sys.exit("calibrate: search returned nothing for every query; is Chroma up and the "
+                 "SAMPLE collection indexed?")
     print("Pick a floor between the lowest ON top and the highest OFF top; set it as "
           "GANTRY_MIN_SOURCE_SIMILARITY in the instance env.")
 

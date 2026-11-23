@@ -18,9 +18,14 @@ def _get_secret_key() -> str:
     Priority: SECRET_KEY env var > secret_key_manager (file-backed).
     Delegates to secret_key_manager for generation, persistence, and
     atomic writes with proper file permissions (0o600).
+
+    Note: sessions are random DB-stored tokens, so this key is currently
+    reserved for future signing; nothing signs with it yet.
     """
-    env_key = os.getenv("SECRET_KEY")
+    env_key = (os.getenv("SECRET_KEY") or "").strip()
     if env_key:
+        if len(env_key) < 32:
+            logger.warning("SECRET_KEY is shorter than 32 characters; use a random 32+ character value.")
         return env_key
 
     from backend.services.secret_key_manager import get_secret_key
@@ -58,7 +63,7 @@ def _get_atom_base_url() -> str:
 @dataclass
 class Settings:
     database_url: str = field(default_factory=_get_database_url)
-    secret_key: str = field(default_factory=_get_secret_key)
+    secret_key: str = field(default_factory=_get_secret_key, repr=False)
     session_expire_hours: int = field(default_factory=_get_session_expire_hours)
     overlord_routing_enabled: bool = field(default_factory=_get_overlord_routing_enabled)
     cors_origins: list[str] = field(default_factory=_get_cors_origins)

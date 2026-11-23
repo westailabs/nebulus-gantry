@@ -311,7 +311,7 @@ Key environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `sqlite:///./data/gantry.db` | SQLAlchemy database connection string |
-| `SECRET_KEY` | *(unset)* | Session signing secret. Unset: a random key is generated and persisted in `data/.secret_key` (0600). Set your own random 32+ character value to share it across replicas |
+| `SECRET_KEY` | *(unset)* | Reserved signing secret. Sessions are random DB-stored tokens, so nothing signs with it yet. Unset or blank: a random key is generated once and persisted in `data/.secret_key` (0600); concurrent workers agree on one key. If set, use a random 32+ character value |
 | `NEBULUS_CHROMA_URL` | `http://localhost:8001` | Private ChromaDB endpoint (legacy alias: `CHROMA_HOST`) |
 | `NEBULUS_LLM_URL` | `http://localhost:5000` | OpenAI-compatible LLM endpoint (legacy alias: `TABBY_HOST`) |
 | `SESSION_EXPIRE_HOURS` | `24` | Session cookie lifetime in hours |

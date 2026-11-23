@@ -12,7 +12,8 @@ services:
       - GANTRY_MIN_SOURCE_SIMILARITY=${GANTRY_MIN_SOURCE_SIMILARITY:-0.42}
       - GANTRY_REASONING_PREFILLED=${GANTRY_REASONING_PREFILLED:-false}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost:3001}
-      # No key in this file. Unset/blank: the backend generates a random per-install key in
+      # Reserved signing key (sessions are DB tokens). No key in this file.
+      # Unset/blank: the backend generates a random per-install key in
       # ./data/.secret_key (0600, persisted by the volume). Set SECRET_KEY in the environment
       # or .env to supply your own (e.g. shared across replicas).
       - SECRET_KEY=${SECRET_KEY:-}

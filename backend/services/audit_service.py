@@ -93,13 +93,18 @@ class AuditService:
         ip_address: str | None = None,
     ) -> None:
         global write_failures
-        detail = dict(detail or {})
-        stored_query = None
-        if query_text is not None:
-            if store_query_text_enabled():
-                stored_query = redact(query_text) if _redact_enabled() else query_text
-            else:
-                detail["query_chars"] = len(query_text)
+        try:
+            detail = dict(detail or {})
+            stored_query = None
+            if query_text is not None:
+                if store_query_text_enabled():
+                    stored_query = redact(query_text) if _redact_enabled() else query_text
+                else:
+                    detail["query_chars"] = len(query_text)
+        except Exception:  # never break the request because of auditing
+            write_failures += 1
+            logger.exception("AUDIT WRITE FAILED for %s (%d failures so far)", action, write_failures)
+            return
         # A caller may have left the session failed (e.g. a swallowed flush error).
         # Roll back before touching ORM attributes: reading an expired user on a
         # failed session raises. Then try the write, rolling back and retrying once.

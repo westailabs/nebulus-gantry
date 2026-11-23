@@ -359,7 +359,7 @@ class TestItem6Counter:
         db.add(Message(conversation_id=None, role=None, content=None))  # NOT NULL violations
         try:
             db.commit()
-        except Exception:  # noqa: BLE001  -- swallowed without rollback, like chat.py:582
+        except Exception:  # noqa: BLE001,S110  -- swallowed without rollback, like chat.py:582
             pass
         AuditService(db).record("chat.query", detail={"outcome": "completed"})
         assert audit_service.write_failures == 0
