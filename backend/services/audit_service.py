@@ -38,7 +38,8 @@ _REDACTIONS = [
 ]
 _FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
-# Count of audit writes that failed in this process (surfaced in the admin API).
+# Count of audit writes that failed in this process; returned by GET /api/admin/audit
+# as ``audit_write_failures`` (resets on restart).
 write_failures = 0
 
 
@@ -91,6 +92,7 @@ class AuditService:
         detail: dict | None = None,
         ip_address: str | None = None,
     ) -> None:
+        global write_failures
         try:
             detail = dict(detail or {})
             stored_query = None
@@ -99,7 +101,8 @@ class AuditService:
                     stored_query = redact(query_text) if _redact_enabled() else query_text
                 else:
                     detail["query_chars"] = len(query_text)
-            event = AuditEvent(
+            # Read user attributes once: after a rollback the ORM object may be expired.
+            fields = dict(
                 user_id=getattr(user, "id", None),
                 user_email=getattr(user, "email", None) or user_email,
                 action=action,
@@ -110,16 +113,26 @@ class AuditService:
                 detail=json.dumps(detail) if detail else None,
                 ip_address=ip_address,
             )
-            self.db.add(event)
-            self.db.commit()
-        except Exception as e:  # never break the request because of auditing
-            global write_failures
+        except Exception:  # never break the request because of auditing
             write_failures += 1
-            logger.error("AUDIT WRITE FAILED for %s (%d failures so far): %s", action, write_failures, e)
+            logger.exception("AUDIT WRITE FAILED for %s (%d failures so far)", action, write_failures)
+            return
+        # One retry after rollback: a caller may have left the session in a failed
+        # state (e.g. a swallowed flush error), which would otherwise lose this row.
+        for attempt in (1, 2):
             try:
-                self.db.rollback()
-            except Exception:
-                pass
+                self.db.add(AuditEvent(**fields))
+                self.db.commit()
+                return
+            except Exception:  # never break the request because of auditing
+                try:
+                    self.db.rollback()
+                except Exception:
+                    pass
+                if attempt == 2:
+                    write_failures += 1
+                    logger.exception("AUDIT WRITE FAILED for %s (%d failures so far)",
+                                     action, write_failures)
 
     def list_events(
         self,

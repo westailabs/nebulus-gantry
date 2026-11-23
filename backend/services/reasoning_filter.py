@@ -11,6 +11,11 @@ before such an orphan close is reasoning too.
 tags are split across chunks. An orphan close can only be detected after
 the reasoning has streamed, so the filter sets ``saw_orphan_close`` and the
 caller should replace the streamed text with ``strip_reasoning(raw)``.
+
+For templates known to prefill ``<think>`` (``GANTRY_REASONING_PREFILLED``),
+use ``ThinkTagFilter(assume_open=True)``: output is held back until the first
+closing tag, so reasoning never reaches the client. If no closing tag ever
+arrives, the held text was the answer and is released at ``flush()``.
 """
 import re
 
@@ -54,9 +59,11 @@ def _partial_suffix(lower: str, tags) -> int:
 
 
 class ThinkTagFilter:
-    def __init__(self) -> None:
+    def __init__(self, assume_open: bool = False) -> None:
         self._buf = ""
-        self._in_think = False
+        self._in_think = assume_open
+        self._prefill_pending = assume_open  # holding text until the first close
+        self._held: list[str] = []
         self.saw_orphan_close = False
 
     def feed(self, chunk: str) -> str:
@@ -68,10 +75,14 @@ class ThinkTagFilter:
                 i, tag = _find_first(lower, CLOSES)
                 if i == -1:
                     keep = _partial_suffix(lower, CLOSES)
+                    if self._prefill_pending:
+                        self._held.append(self._buf[: len(self._buf) - keep])
                     self._buf = self._buf[len(self._buf) - keep:] if keep else ""
                     break
                 self._buf = self._buf[i + len(tag):]
                 self._in_think = False
+                self._prefill_pending = False
+                self._held = []
                 continue
             io_, otag = _find_first(lower, OPENS)
             ic, ctag = _find_first(lower, CLOSES)
@@ -91,7 +102,14 @@ class ThinkTagFilter:
             self._in_think = True
         return "".join(out)
 
-    def flush(self) -> str:
+    def flush(self, truncated: bool = False) -> str:
+        """Return any held text. ``truncated``: the stream hit its token limit."""
+        if self._prefill_pending:
+            # No closing tag. If the model stopped normally, the held text was the
+            # answer; if it was cut off (finish_reason=length), it was reasoning.
+            rest = "" if truncated else strip_reasoning("".join(self._held) + self._buf)
+            self._held, self._buf, self._prefill_pending, self._in_think = [], "", False, False
+            return rest
         rest = "" if self._in_think else self._buf
         self._buf = ""
         return rest

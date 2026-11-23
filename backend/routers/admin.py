@@ -26,6 +26,7 @@ from backend.schemas.admin import (
     UserAdminResponse,
     UserListResponse,
 )
+from backend.services import audit_service
 from backend.services.audit_service import AuditService, client_ip, event_to_dict, events_to_csv
 from backend.services.auth_service import AuthService, hash_password
 from backend.services.model_service import ModelService
@@ -287,7 +288,8 @@ def list_audit_events(
 ):
     """List audit events, newest first."""
     events, total = AuditService(db).list_events(action=action, user_id=user_id, limit=limit, offset=offset)
-    return {"total": total, "events": [event_to_dict(e) for e in events]}
+    return {"total": total, "events": [event_to_dict(e) for e in events],
+            "audit_write_failures": audit_service.write_failures}
 
 
 @router.get("/audit/export.csv")
@@ -360,6 +362,7 @@ def get_persona_service(db: DBSession = Depends(get_db)) -> PersonaService:
 @router.post("/personas", response_model=PersonaResponse, status_code=201)
 def create_system_persona(
     data: PersonaCreate,
+    http_request: Request,
     admin=Depends(require_admin),
     service: PersonaService = Depends(get_persona_service),
 ):
@@ -371,6 +374,10 @@ def create_system_persona(
         system_prompt=data.system_prompt,
         temperature=data.temperature,
         model_id=data.model_id,
+    )
+    AuditService(service.db).record(
+        "persona.create", user=admin, resource_type="persona", resource_id=persona.id,
+        ip_address=client_ip(http_request), detail={"scope": "system", "name": persona.name, "changed": sorted(data.model_dump(exclude_unset=True))},
     )
     return _persona_to_response(persona)
 
@@ -389,6 +396,7 @@ def list_system_personas(
 def update_system_persona(
     persona_id: int,
     data: PersonaUpdate,
+    http_request: Request,
     admin=Depends(require_admin),
     service: PersonaService = Depends(get_persona_service),
 ):
@@ -403,18 +411,27 @@ def update_system_persona(
     )
     if not persona:
         raise HTTPException(status_code=404, detail="System persona not found")
+    AuditService(service.db).record(
+        "persona.update", user=admin, resource_type="persona", resource_id=persona.id,
+        ip_address=client_ip(http_request), detail={"scope": "system", "name": persona.name, "changed": sorted(data.model_dump(exclude_unset=True))},
+    )
     return _persona_to_response(persona)
 
 
 @router.delete("/personas/{persona_id}")
 def delete_system_persona(
     persona_id: int,
+    http_request: Request,
     admin=Depends(require_admin),
     service: PersonaService = Depends(get_persona_service),
 ):
     """Delete a system persona."""
     if not service.delete_system_persona(persona_id):
         raise HTTPException(status_code=404, detail="System persona not found")
+    AuditService(service.db).record(
+        "persona.delete", user=admin, resource_type="persona", resource_id=persona_id,
+        ip_address=client_ip(http_request), detail={"scope": "system"},
+    )
     return {"message": "System persona deleted"}
 
 
