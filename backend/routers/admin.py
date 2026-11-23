@@ -1,8 +1,8 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Generator
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DBSession
@@ -26,6 +26,7 @@ from backend.schemas.admin import (
     UserAdminResponse,
     UserListResponse,
 )
+from backend.services.audit_service import AuditService, client_ip, event_to_dict, events_to_csv
 from backend.services.auth_service import AuthService, hash_password
 from backend.services.model_service import ModelService
 from backend.services.persona_service import PersonaService
@@ -44,6 +45,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 def shutdown_docker_service() -> None:
     """Close service management clients on application shutdown."""
     _service_manager.close()
+
+
+MAX_AUDIT_EXPORT_ROWS = 100_000
 
 
 def require_admin(user=Depends(get_current_user)):
@@ -72,6 +76,7 @@ def list_users(
 @router.post("/users", response_model=UserAdminResponse, status_code=201)
 def create_user(
     request: CreateUserRequest,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -87,6 +92,10 @@ def create_user(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email already exists")
+    AuditService(db).record(
+        "user.create", user=admin, resource_type="user", resource_id=user.id,
+        ip_address=client_ip(http_request), detail={"email": user.email, "role": user.role},
+    )
     return user
 
 
@@ -94,6 +103,7 @@ def create_user(
 def update_user(
     user_id: int,
     request: UpdateUserRequest,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -101,6 +111,7 @@ def update_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    role_before = user.role
     if request.display_name is not None:
         user.display_name = request.display_name
     if request.role is not None:
@@ -109,12 +120,20 @@ def update_user(
         user.password_hash = hash_password(request.password)
     db.commit()
     db.refresh(user)
+    AuditService(db).record(
+        "user.update", user=admin, resource_type="user", resource_id=user.id,
+        ip_address=client_ip(http_request),
+        detail={"email": user.email, "role_before": role_before, "role_after": user.role,
+                "password_changed": request.password is not None,
+                "display_name_changed": request.display_name is not None},
+    )
     return user
 
 
 @router.delete("/users/{user_id}", response_model=DeleteUserResponse)
 def delete_user(
     user_id: int,
+    http_request: Request,
     db: DBSession = Depends(get_db),
     admin=Depends(require_admin),
 ):
@@ -126,8 +145,13 @@ def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     # Delete associated sessions first to avoid FK constraint violations
     db.query(Session).filter(Session.user_id == user_id).delete()
+    email, role = user.email, user.role
     db.delete(user)
     db.commit()
+    AuditService(db).record(
+        "user.delete", user=admin, resource_type="user", resource_id=user_id,
+        ip_address=client_ip(http_request), detail={"email": email, "role": role},
+    )
     return DeleteUserResponse(message=f"User {user.email} deleted")
 
 
@@ -249,8 +273,49 @@ async def stream_logs(
 # ── Data Export ─────────────────────────────────────────────────────────────
 
 
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/audit")
+def list_audit_events(
+    action: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    admin=Depends(require_admin),
+    db: DBSession = Depends(get_db),
+):
+    """List audit events, newest first."""
+    events, total = AuditService(db).list_events(action=action, user_id=user_id, limit=limit, offset=offset)
+    return {"total": total, "events": [event_to_dict(e) for e in events]}
+
+
+@router.get("/audit/export.csv")
+def export_audit_csv(
+    request: Request,
+    action: str | None = Query(default=None),
+    user_id: int | None = Query(default=None),
+    admin=Depends(require_admin),
+    db: DBSession = Depends(get_db),
+):
+    """Download audit events as CSV (up to 100k rows). The export is itself audited."""
+    svc = AuditService(db)
+    events, total = svc.list_events(action=action, user_id=user_id, limit=MAX_AUDIT_EXPORT_ROWS)
+    body = events_to_csv(events)
+    svc.record("audit.export", user=admin, ip_address=client_ip(request),
+               detail={"rows": len(events), "total": total, "truncated": total > len(events),
+                       "action_filter": action, "user_filter": user_id})
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gantry-audit-{stamp}.csv"},
+    )
+
+
 @router.post("/export/bulk")
 def bulk_export(
+    request: Request,
     user_id: int | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -271,6 +336,12 @@ def bulk_export(
 
     export_service = ExportService(db)
     zip_buffer = export_service.bulk_export(user_id, date_from, date_to)
+    AuditService(db).record(
+        "conversation.bulk_export", user=admin, ip_address=client_ip(request),
+        detail={"user_filter": user_id,
+                "date_from": date_from.isoformat() if date_from else None,
+                "date_to": date_to.isoformat() if date_to else None},
+    )
 
     return Response(
         content=zip_buffer.getvalue(),

@@ -5,6 +5,7 @@ from sqlalchemy import inspect, text
 
 from backend.database import get_engine, get_session_maker, Base
 from backend.config import Settings
+import backend.models  # noqa: F401  (register all tables, incl. audit_events)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,18 @@ def migrate_add_knowledge_vault_columns(engine) -> None:
         conn.commit()
 
 
+def migrate_add_message_sources_column(engine) -> None:
+    """Add sources column to messages table if it doesn't exist (idempotent)."""
+    inspector = inspect(engine)
+    if "messages" not in inspector.get_table_names():
+        return
+    columns = [c["name"] for c in inspector.get_columns("messages")]
+    if "sources" not in columns:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN sources TEXT"))
+            conn.commit()
+
+
 settings = Settings()
 engine = get_engine(settings.database_url)
 SessionLocal = get_session_maker(engine)
@@ -56,6 +69,7 @@ Base.metadata.create_all(bind=engine)
 # Run migrations
 migrate_add_pinned_column(engine)
 migrate_add_knowledge_vault_columns(engine)
+migrate_add_message_sources_column(engine)
 
 
 def seed_default_personas(session_factory) -> None:

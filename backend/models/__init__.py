@@ -5,6 +5,7 @@ from backend.models.session import Session
 from backend.models.collection import Collection
 from backend.models.document import Document
 from backend.models.persona import Persona
+from backend.models.audit_event import AuditEvent
 
 __all__ = [
     "User",
@@ -14,4 +15,5 @@ __all__ = [
     "Collection",
     "Document",
     "Persona",
+    "AuditEvent",
 ]

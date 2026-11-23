@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Message } from '../types/api';
+import type { Citation, Message } from '../types/api';
+import { SourceViewer } from './SourceViewer';
+import { SOURCE_HREF, linkCitations } from './citationUtils';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { ChartBlock } from './ChartBlock';
 import { extractChartsFromText } from './chartUtils';
@@ -11,6 +14,8 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const [openSource, setOpenSource] = useState<Citation | null>(null);
+  const sources = !isUser ? message.sources ?? [] : [];
   const { showTimestamps, showTokenUsage, showGenerationSpeed } = usePreferencesStore();
 
   const formatTime = (dateStr: string) => {
@@ -32,9 +37,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   const charts = !isUser ? extractChartsFromText(message.content) : [];
 
   // Remove chart JSON from the text content to avoid displaying it
-  const cleanContent = !isUser && charts.length > 0
+  const strippedContent = !isUser && charts.length > 0
     ? message.content.replace(/\{"chart":\s*\{[^}]+\}\}/g, '').trim()
     : message.content;
+  const cleanContent = !isUser ? linkCitations(strippedContent, sources) : strippedContent;
+  const findSource = (n: number) => sources.find((s) => s.n === n) ?? null;
 
   return (
     <div
@@ -76,6 +83,22 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   );
                 },
                 a({ href, children }) {
+                  if (href?.startsWith(SOURCE_HREF)) {
+                    const src = findSource(parseInt(href.slice(SOURCE_HREF.length), 10));
+                    return (
+                      <a
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (src) setOpenSource(src);
+                        }}
+                        title={src ? `${src.filename} · chunk ${src.chunk_index + 1}` : undefined}
+                        className="text-cyan-300 hover:underline no-underline font-medium"
+                      >
+                        {children}
+                      </a>
+                    );
+                  }
                   return (
                     <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
                       {children}
@@ -86,6 +109,23 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             >
               {cleanContent}
             </Markdown>
+
+            {/* Structured citations: clickable source chips */}
+            {sources.length > 0 && (
+              <div className="not-prose mt-3 flex flex-wrap gap-1.5" aria-label="Sources">
+                {sources.map((src) => (
+                  <button
+                    key={src.n}
+                    type="button"
+                    onClick={() => setOpenSource(src)}
+                    className="rounded-md border border-gray-500 bg-gray-800 px-2 py-0.5 text-xs text-gray-200 hover:border-cyan-400 hover:text-cyan-200 transition-colors"
+                    title={src.snippet ?? undefined}
+                  >
+                    [{src.n}] {src.filename} · chunk {src.chunk_index + 1}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Render charts if detected */}
             {charts.length > 0 && (
@@ -131,6 +171,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
       </div>
+      {openSource && <SourceViewer citation={openSource} onClose={() => setOpenSource(null)} />}
     </div>
   );
 }

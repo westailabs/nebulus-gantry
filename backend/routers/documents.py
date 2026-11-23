@@ -4,11 +4,12 @@ Documents Router for Knowledge Vault.
 Endpoints for managing collections and documents.
 """
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session as DBSession
 
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
+from backend.services.audit_service import AuditService, client_ip
 from backend.services.document_service import DocumentService
 from backend.schemas.document import (
     CollectionCreate,
@@ -114,10 +115,12 @@ ALLOWED_CONTENT_TYPES = {
 
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     collection_id: int | None = Form(None),
     user=Depends(get_current_user),
     service: DocumentService = Depends(get_document_service),
+    db: DBSession = Depends(get_db),
 ):
     """Upload a document to the knowledge vault."""
     # Validate content type
@@ -161,9 +164,19 @@ async def upload_document(
             content_type=doc_type,
             collection_id=collection_id,
         )
-        return document
     except ValueError as e:
+        AuditService(db).record(
+            "document.upload_failed", user=user, resource_type="document",
+            detail={"filename": file.filename, "error": str(e)[:200]}, ip_address=client_ip(request),
+        )
         raise HTTPException(status_code=400, detail=str(e))
+    AuditService(db).record(
+        "document.upload", user=user, resource_type="document", resource_id=document.id,
+        doc_ids=[document.id], ip_address=client_ip(request),
+        detail={"filename": document.filename, "collection_id": collection_id,
+                "chunks": document.chunk_count, "status": document.status},
+    )
+    return document
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -189,15 +202,50 @@ def get_document(
     return document
 
 
+@router.get("/{document_id}/chunks/{chunk_index}")
+def get_document_chunk(
+    document_id: int,
+    chunk_index: int,
+    request: Request,
+    user=Depends(get_current_user),
+    service: DocumentService = Depends(get_document_service),
+    db: DBSession = Depends(get_db),
+):
+    """Return one chunk of a document so the UI can show a cited source."""
+    document = service.get_document(document_id, user.id)
+    if not document or chunk_index < 0 or chunk_index >= (document.chunk_count or 0):
+        raise HTTPException(status_code=404, detail="Source not found")
+    text = service.get_chunk_text(user.id, document_id, chunk_index)
+    if text is None:
+        raise HTTPException(status_code=404, detail="Source text unavailable")
+    AuditService(db).record(
+        "document.view_source", user=user, resource_type="document", resource_id=document_id,
+        doc_ids=[document_id], detail={"chunk_index": chunk_index}, ip_address=client_ip(request),
+    )
+    return {
+        "document_id": document.id,
+        "filename": document.filename,
+        "chunk_index": chunk_index,
+        "chunk_count": document.chunk_count,
+        "text": text,
+    }
+
+
 @router.delete("/{document_id}")
 def delete_document(
     document_id: int,
+    request: Request,
     user=Depends(get_current_user),
     service: DocumentService = Depends(get_document_service),
+    db: DBSession = Depends(get_db),
 ):
     """Delete a document."""
     if not service.delete_document(document_id, user.id):
         raise HTTPException(status_code=404, detail="Document not found")
+    AuditService(db).record(
+        "document.delete", user=user, resource_type="document", resource_id=document_id,
+        doc_ids=[document_id], ip_address=client_ip(request),
+    )
     return {"message": "Document deleted"}
 
 

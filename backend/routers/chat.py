@@ -1,8 +1,11 @@
+import asyncio
 import json
 import logging
+import os
 import time
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DBSession
@@ -10,7 +13,13 @@ from sqlalchemy.orm import Session as DBSession
 from backend.config import settings
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
+from backend.services.audit_service import AuditService, client_ip
 from backend.services.chat_service import ChatService
+from backend.services.document_service import (
+    RetrievalError,
+    format_sources_context,
+    sources_to_citations,
+)
 from backend.services.llm_service import LLMService
 from backend.services.model_service import ModelService
 from backend.platform import get_default_model
@@ -27,6 +36,22 @@ from backend.schemas.persona import SetConversationPersonaRequest
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+NO_SOURCE_MESSAGE = (
+    "I couldn't find anything about that in the selected documents, so I "
+    "won't guess. Try rephrasing, or check that the right client documents "
+    "are in scope."
+)
+
+
+RETRIEVAL_ERROR_MESSAGE = (
+    "Document search is unavailable right now, so I can't answer from your "
+    "documents. Please try again shortly or contact your administrator."
+)
+
+
+def _refuse_without_sources() -> bool:
+    return os.getenv("GANTRY_REFUSE_WITHOUT_SOURCES", "true").lower() in ("true", "1", "yes")
 
 
 def _build_token_meta(
@@ -249,6 +274,7 @@ def toggle_pin_conversation(
 @router.get("/conversations/{conversation_id}/export")
 def export_conversation(
     conversation_id: int,
+    http_request: Request,
     format: str = Query(default="json", pattern="^(json|pdf|excel)$"),
     user=Depends(get_current_user),
     db: DBSession = Depends(get_db),
@@ -266,10 +292,17 @@ def export_conversation(
 
     export_service = ExportService(db)
 
+    def _audit_export():
+        AuditService(db).record(
+            "conversation.export", user=user, resource_type="conversation",
+            resource_id=conversation_id, detail={"format": format}, ip_address=client_ip(http_request),
+        )
+
     if format == "json":
         data = export_service.export_json(conversation_id, user.id)
         if not data:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return JSONResponse(
             content=data,
             headers={
@@ -280,6 +313,7 @@ def export_conversation(
         pdf_bytes = export_service.export_pdf(conversation_id, user.id)
         if not pdf_bytes:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -291,6 +325,7 @@ def export_conversation(
         excel_bytes = export_service.export_spreadsheet(conversation_id, user.id)
         if not excel_bytes:
             raise HTTPException(status_code=404, detail="Conversation not found")
+        _audit_export()
         return Response(
             content=excel_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -303,6 +338,7 @@ def export_conversation(
 @router.get("/conversations/{conversation_id}/report")
 def export_report(
     conversation_id: int,
+    http_request: Request,
     user=Depends(get_current_user),
     db: DBSession = Depends(get_db),
 ):
@@ -325,6 +361,10 @@ def export_report(
     report_bytes = export_service.export_report(conversation_id, user.id)
     if not report_bytes:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    AuditService(db).record(
+        "conversation.export", user=user, resource_type="conversation",
+        resource_id=conversation_id, detail={"format": "report"}, ip_address=client_ip(http_request),
+    )
 
     return Response(
         content=report_bytes,
@@ -339,6 +379,7 @@ def export_report(
 async def send_message(  # noqa: C901
     conversation_id: int,
     request: SendMessageRequest,
+    http_request: Request,
     user=Depends(get_current_user),
     chat: ChatService = Depends(get_chat_service),
     db: DBSession = Depends(get_db),
@@ -381,18 +422,53 @@ async def send_message(  # noqa: C901
 
     # --- RAG: Query document knowledge vault ---
     rag_context = ""
-    if conversation.document_scope:
+    rag_scoped = bool(conversation.document_scope)
+    citations: list[dict] = []
+    retrieval_error = False
+    if rag_scoped:
         try:
             document_service = _create_document_service(db)
             document_scope = json.loads(conversation.document_scope)
-            rag_context = document_service.build_rag_context(
+            results = document_service.retrieve_sources(
                 user_id=user.id,
                 query=request.content,
                 document_scope=document_scope,
                 top_k=3,
             )
+            citations = sources_to_citations(results)
+            rag_context = format_sources_context(results)
+        except RetrievalError as e:
+            logger.error(f"Document retrieval failed: {e}")
+            retrieval_error = True
         except Exception as e:
-            logger.warning(f"RAG context build failed: {e}")
+            logger.error(f"RAG context build failed: {e}")
+            retrieval_error = True
+    refused = rag_scoped and (retrieval_error or (not citations and _refuse_without_sources()))
+    audit = AuditService(db)
+    ip = client_ip(http_request)
+    correlation_id = uuid.uuid4().hex[:12]
+
+    if refused:
+        message = RETRIEVAL_ERROR_MESSAGE if retrieval_error else NO_SOURCE_MESSAGE
+        outcome = "retrieval_error" if retrieval_error else "no_match"
+
+        async def refuse():
+            start_time = time.monotonic()
+            try:
+                yield f"data: {json.dumps({'content': message})}\n\n"
+                meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
+                        "sources": [], "refused": True}
+                yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+                chat.add_message(conversation_id, "assistant", message)
+            finally:
+                audit.record(
+                    "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+                    doc_ids=[], query_text=request.content, ip_address=ip,
+                    detail={"outcome": outcome, "refused": True, "retrieval_error": retrieval_error,
+                            "scoped": True, "model": None, "correlation_id": correlation_id},
+                )
+
+        return StreamingResponse(refuse(), media_type="text/event-stream")
 
     # --- Persona: Load persona system prompt if assigned ---
     persona = None
@@ -453,21 +529,68 @@ async def send_message(  # noqa: C901
     llm = LLMService()
     llm_model = request.model or get_default_model()
 
-    async def generate():
+    async def generate():  # noqa: C901
         full_response = ""
         start_time = time.monotonic()
-        async for chunk in llm.stream_chat(
-            llm_messages, model=llm_model, temperature=persona_temperature
-        ):
-            full_response += chunk
-            yield f"data: {json.dumps({'content': chunk})}\n\n"
+        outcome = "client_aborted"  # until proven otherwise (disconnect/cancel)
+        error_type = None
+        meta: dict = {}
+        try:
+            if citations:
+                # Structured citations first, so the UI can render clickable sources.
+                yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
+            async for chunk in llm.stream_chat(
+                llm_messages, model=llm_model, temperature=persona_temperature
+            ):
+                full_response += chunk
+                yield f"data: {json.dumps({'content': chunk})}\n\n"
 
-        generation_time_ms = int((time.monotonic() - start_time) * 1000)
-        meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
-        yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+            cleaned = getattr(llm, "reasoning_leak_cleaned", None)
+            if isinstance(cleaned, str):
+                # Reasoning leaked before an orphan </think>: replace what was streamed.
+                full_response = cleaned
+                yield f"event: replace\ndata: {json.dumps({'content': cleaned})}\n\n"
 
-        # Save assistant response after streaming completes
-        assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
+            last_error = getattr(llm, "last_error", None)
+            llm_failed = isinstance(last_error, str)
+            if llm_failed:
+                error_type = last_error
+            outcome = ("empty_answer" if last_error == "empty_answer" else "llm_error") if llm_failed \
+                else "completed"
+
+            generation_time_ms = int((time.monotonic() - start_time) * 1000)
+            meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
+            if rag_scoped:
+                meta["sources"] = [] if llm_failed else citations
+            yield f"event: done\ndata: {json.dumps(meta)}\n\n"
+
+            # Save assistant response after streaming completes
+            assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
+            if citations and not llm_failed:
+                try:
+                    assistant_msg.sources = json.dumps(citations)
+                    chat.db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to persist citations: {e}")
+        except (GeneratorExit, asyncio.CancelledError):
+            outcome = "client_aborted"
+            raise
+        except Exception as e:
+            outcome = "error"
+            error_type = type(e).__name__
+            raise
+        finally:
+            audit.record(
+                "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
+                doc_ids=[c["document_id"] for c in citations], query_text=request.content, ip_address=ip,
+                detail={"outcome": outcome, "error_type": error_type, "refused": False,
+                        "scoped": rag_scoped, "model": llm_model, "correlation_id": correlation_id,
+                        "generation_time_ms": int((time.monotonic() - start_time) * 1000),
+                        "completion_tokens": meta.get("completion_tokens")},
+            )
+
+        if outcome != "completed":
+            return
 
         # --- LTM: Update long-term memory asynchronously ---
         # Embed user message into ChromaDB

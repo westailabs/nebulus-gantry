@@ -21,7 +21,52 @@ export interface Conversation {
   updated_at: string;
 }
 
+export interface Citation {
+  n: number;
+  document_id: number;
+  filename: string;
+  chunk_index: number;
+  similarity?: number | null;
+  snippet?: string | null;
+}
+
+export interface DocumentChunk {
+  document_id: number;
+  filename: string;
+  chunk_index: number;
+  chunk_count: number;
+  text: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  timestamp: string | null;
+  user_id: number | null;
+  user_email: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  doc_ids: number[];
+  query_text: string | null;
+  detail: Record<string, unknown>;
+  ip_address: string | null;
+}
+
+export interface AuditListResponse {
+  total: number;
+  events: AuditEvent[];
+}
+
+export interface AuditFilters {
+  action?: string;
+  user_id?: number;
+  limit?: number;
+  offset?: number;
+}
+
 export interface MessageMeta {
+  sources?: Citation[];
+  refused?: boolean;
   generation_time_ms?: number;
   prompt_tokens?: number;
   completion_tokens?: number;
@@ -37,6 +82,7 @@ export interface Message {
   content: string;
   created_at: string;
   meta?: MessageMeta;
+  sources?: Citation[] | null;
 }
 
 export interface ApiError {
