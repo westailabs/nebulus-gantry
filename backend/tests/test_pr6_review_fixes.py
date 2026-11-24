@@ -173,3 +173,59 @@ def test_audit_prep_failure_is_swallowed(monkeypatch):
     monkeypatch.setattr(audit_service, "write_failures", 0)
     AuditService(db=None).record("x.y", detail=Bad())  # must not raise
     assert audit_service.write_failures == 1
+
+
+# ── os.link fallback for filesystems without hard links ────────────────────
+def _no_link(*a, **k):
+    import errno
+    raise OSError(errno.EPERM, "Operation not permitted")
+
+
+def test_link_eperm_falls_back_to_excl_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(skm.os, "link", _no_link)
+    k = skm.get_secret_key(tmp_path)
+    f = tmp_path / ".secret_key"
+    assert len(k) == 64 and stat.S_IMODE(f.stat().st_mode) == 0o600
+    assert skm.get_secret_key(tmp_path) == k and f.read_text().strip() == k
+    assert not list(tmp_path.glob(".secret_key_tmp_*"))
+
+
+def test_fallback_existing_file_returns_existing_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(skm.os, "link", _no_link)
+    f = tmp_path / ".secret_key"
+    f.write_text("b" * 64)
+    f.chmod(0o600)
+    assert skm._create_key_exclusive(f, "c" * 64) is None
+    assert skm.get_secret_key(tmp_path) == "b" * 64
+
+
+def test_fallback_failure_raises_storage_error(tmp_path, monkeypatch):
+    import errno
+    monkeypatch.setattr(skm.os, "link", _no_link)
+    real_open = skm.os.open
+
+    def bad_open(path, flags, *a, **k):
+        if str(path).endswith(".secret_key"):
+            raise OSError(errno.EROFS, "Read-only file system")
+        return real_open(path, flags, *a, **k)
+    monkeypatch.setattr(skm.os, "open", bad_open)
+    with pytest.raises(RuntimeError) as e:
+        skm.get_secret_key(tmp_path)
+    assert "SECRET_KEY" in str(e.value)
+    assert not (tmp_path / ".secret_key").exists()
+    assert not list(tmp_path.glob(".secret_key_tmp_*"))
+
+
+def test_fallback_concurrent_workers_agree(tmp_path, monkeypatch):
+    monkeypatch.setattr(skm.os, "link", _no_link)  # inherited by forked workers
+    ctx = mp.get_context("fork")
+    for i in range(10):
+        d = tmp_path / f"f{i}"
+        d.mkdir()
+        n = 8
+        barrier, q = ctx.Barrier(n), ctx.Queue()
+        ps = [ctx.Process(target=_worker, args=(str(d), barrier, q)) for _ in range(n)]
+        [p.start() for p in ps]
+        keys = [q.get(timeout=30) for _ in range(n)]
+        [p.join() for p in ps]
+        assert set(keys) == {(d / ".secret_key").read_text().strip()}

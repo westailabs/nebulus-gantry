@@ -21,6 +21,7 @@ import os
 import secrets
 import stat
 import tempfile
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -107,8 +108,32 @@ def _create_key_exclusive(key_file: Path, key: str) -> str | None:
         return key
     except FileExistsError:
         return None
+    except OSError:
+        # Filesystem without hard links (EPERM/EOPNOTSUPP/EXDEV/EMLINK...):
+        # fall back to an exclusive create of the key file itself.
+        return _create_key_excl_open(key_file, key)
     finally:
         _unlink_quietly(tmp_path)
+
+
+def _create_key_excl_open(key_file: Path, key: str) -> str | None:
+    """O_CREAT|O_EXCL fallback; 0600 from creation. ``None`` if the file exists."""
+    try:
+        fd = os.open(str(key_file), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return None
+    except OSError as e:
+        raise _storage_error(key_file, e) from e
+    try:
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)  # 0o600 regardless of umask
+        os.write(fd, key.encode("utf-8"))
+        os.fsync(fd)
+    except OSError as e:
+        os.close(fd)
+        _unlink_quietly(str(key_file))
+        raise _storage_error(key_file, e) from e
+    os.close(fd)
+    return key
 
 
 def _fd_closed(fd: int) -> bool:
@@ -169,10 +194,13 @@ def get_secret_key(data_dir: Path) -> str:
         return created
     # The file exists: another worker created it first (it is always complete,
     # because it only appears via link), so everyone uses that key.
-    existing = _read_key(key_file)
-    if existing is not None:
-        return existing
-    # Present but empty (e.g. a manual truncation, not a race): replace it.
+    # With the O_EXCL fallback the winner's file is briefly empty, so wait a moment.
+    for _ in range(50):
+        existing = _read_key(key_file)
+        if existing is not None:
+            return existing
+        time.sleep(0.01)
+    # Still empty (e.g. a manual truncation, not a race): replace it.
     _write_key(key_file, key)
     return key
 
