@@ -80,7 +80,7 @@ class TestItem1BlankReply:
         evs = _events(r.text)
         reps = [e for e in evs if e.startswith("event: replace")]
         assert reps and json.loads(reps[-1].split("data: ", 1)[1])["content"] == EMPTY_ANSWER_MESSAGE
-        done = json.loads([e for e in evs if e.startswith("event: done")][0].split("data: ", 1)[1])
+        done = json.loads(next(e for e in evs if e.startswith("event: done")).split("data: ", 1)[1])
         assert done["sources"] == []
         asst = db.query(Message).filter_by(role="assistant").one()
         assert asst.content == EMPTY_ANSWER_MESSAGE and asst.sources is None
@@ -151,6 +151,14 @@ class TestItem2Floor:
         assert "GANTRY_MIN_SOURCE_SIMILARITY" in (root / "docker-compose.yml").read_text()
         assert (root / "scripts/cpa_demo_smoke.py").exists()
 
+    def test_compose_has_no_hardcoded_secret_key(self):
+        import re
+        from pathlib import Path
+        root = Path(__file__).resolve().parents[2]
+        for name in ("docker-compose.yml", ".env.example"):
+            for m in re.finditer(r"SECRET_KEY=(\S*)", (root / name).read_text()):
+                assert m.group(1) in ("", "${SECRET_KEY:-}"), (name, "hardcoded SECRET_KEY")
+
     def test_off_topic_refusal_fires_end_to_end(self, client, db, alice, monkeypatch):
         monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", "0.42")
         conv = _scoped(client, db, alice[1])
@@ -164,7 +172,7 @@ class TestItem2Floor:
             r = client.post(f"/api/chat/conversations/{conv}/messages", json={"content": "weather?"},
                             cookies={"session_token": alice[1]})
         assert not MockLLM.return_value.stream_chat.called
-        done = json.loads([e for e in _events(r.text) if e.startswith("event: done")][0].split("data: ", 1)[1])
+        done = json.loads(next(e for e in _events(r.text) if e.startswith("event: done")).split("data: ", 1)[1])
         assert done["refused"] is True and done["sources"] == []
         d = _query_detail(db)
         assert d["outcome"] == "no_match" and d["refused"] is True
@@ -306,6 +314,7 @@ class TestItem5PersonaScope:
                                      [{"type": "document", "id": "x"}]])
     def test_bad_scope_is_422_before_commit(self, db, alice, bad):
         from fastapi.testclient import TestClient
+
         from backend.main import app
         c = TestClient(app, raise_server_exceptions=False)
         t = {"session_token": alice[1]}
@@ -350,7 +359,7 @@ class TestItem6Counter:
         db.add(Message(conversation_id=None, role=None, content=None))  # NOT NULL violations
         try:
             db.commit()
-        except Exception:  # noqa: BLE001  -- swallowed without rollback, like chat.py:582
+        except Exception:  # noqa: BLE001,S110  -- swallowed without rollback, like chat.py:582
             pass
         AuditService(db).record("chat.query", detail={"outcome": "completed"})
         assert audit_service.write_failures == 0
@@ -385,3 +394,30 @@ class TestPR4Blockers:
         rows = list(csv.reader(io.StringIO(r.text)))
         assert len(rows) == 2 and "HYPERLINK" in rows[1][9]
         assert not any(c.startswith(("=", "+", "-", "@", "\t", "\r")) for row in rows for c in row)
+
+
+# ── Round 2: expired ORM user on a failed session; prefill truncation end-to-end ──
+def test_failed_session_with_expired_user_still_writes_row(db, alice, monkeypatch):
+    from backend.models.user import User
+    monkeypatch.setattr(audit_service, "write_failures", 0)
+    user = db.get(User, alice[0].id)
+    db.commit()  # expires user (expire_on_commit)
+    db.add(Message(conversation_id=None, role=None, content=None))  # NOT NULL violations
+    try:
+        db.commit()
+    except Exception:  # noqa: S110 -- left un-rolled-back on purpose
+        pass
+    AuditService(db).record("x.y", user=user)
+    assert audit_service.write_failures == 0
+    ev = db.query(AuditEvent).one()
+    assert ev.user_id == alice[0].id and ev.user_email == "alice@example.com"
+
+
+def test_prefill_truncated_end_to_end(client, db, alice, monkeypatch):
+    monkeypatch.setenv("GANTRY_REASONING_PREFILLED", "true")
+    conv = _scoped(client, db, alice[1])
+    r = _chat_real_llm(client, conv, alice[1], [{"content": "secret reasoning"}], finish="length")
+    assert "secret reasoning" not in r.text
+    asst = db.query(Message).filter_by(role="assistant").one()
+    assert asst.content == EMPTY_ANSWER_MESSAGE and asst.sources is None
+    assert _query_detail(db)["outcome"] == "empty_answer"

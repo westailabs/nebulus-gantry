@@ -16,11 +16,15 @@ Typical usage::
 
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import stat
 import tempfile
+import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _KEY_FILENAME = ".secret_key"
 _KEY_BYTES = 32  # 32 bytes → 64-char hex string
@@ -47,35 +51,89 @@ def _generate_key() -> str:
     return secrets.token_hex(_KEY_BYTES)
 
 
-def _write_key(key_file: Path, key: str) -> None:
-    """Atomically write *key* to *key_file* with 0600 permissions.
-
-    Uses a temporary file + rename to avoid leaving a partial key on
-    disk if the process is interrupted.
-
-    Args:
-        key_file: Destination path for the key.
-        key: The hex-encoded secret key string.
-    """
-    key_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write to a temp file in the same directory, then atomic rename.
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(key_file.parent), prefix=".secret_key_tmp_"
+def _storage_error(key_file: Path, err: OSError) -> RuntimeError:
+    return RuntimeError(
+        f"Cannot create the secret key file in {key_file.parent} ({type(err).__name__}). "
+        "Set SECRET_KEY in the environment, or make GANTRY_DATA_DIR writable."
     )
+
+
+def _write_temp(key_file: Path, key: str) -> str:
+    """Write *key* to a 0600 temp file next to *key_file*; return its path."""
     try:
-        os.write(fd, key.encode("utf-8"))
+        key_file.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=str(key_file.parent), prefix=".secret_key_tmp_")
+    except OSError as e:
+        raise _storage_error(key_file, e) from e
+    try:
         os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+        os.write(fd, key.encode("utf-8"))
+        os.fsync(fd)
+    except BaseException:
         os.close(fd)
+        _unlink_quietly(tmp_path)
+        raise
+    os.close(fd)
+    return tmp_path
+
+
+def _unlink_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _write_key(key_file: Path, key: str) -> None:
+    """Atomically write (or overwrite) *key* to *key_file* with 0600 permissions."""
+    tmp_path = _write_temp(key_file, key)
+    try:
         os.replace(tmp_path, str(key_file))
     except BaseException:
-        os.close(fd) if not _fd_closed(fd) else None  # noqa: E501
-        # Best-effort cleanup of the temp file.
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _unlink_quietly(tmp_path)
         raise
+
+
+def _create_key_exclusive(key_file: Path, key: str) -> str | None:
+    """Create *key_file* only if it doesn't exist (atomic ``link``).
+
+    Returns *key* if this process created the file, or ``None`` if another
+    process won the race (the caller then re-reads the file). The file is
+    complete and 0600 before it becomes visible, so a reader never sees a
+    partial key.
+    """
+    tmp_path = _write_temp(key_file, key)
+    try:
+        os.link(tmp_path, str(key_file))
+        return key
+    except FileExistsError:
+        return None
+    except OSError:
+        # Filesystem without hard links (EPERM/EOPNOTSUPP/EXDEV/EMLINK...):
+        # fall back to an exclusive create of the key file itself.
+        return _create_key_excl_open(key_file, key)
+    finally:
+        _unlink_quietly(tmp_path)
+
+
+def _create_key_excl_open(key_file: Path, key: str) -> str | None:
+    """O_CREAT|O_EXCL fallback; 0600 from creation. ``None`` if the file exists."""
+    try:
+        fd = os.open(str(key_file), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return None
+    except OSError as e:
+        raise _storage_error(key_file, e) from e
+    try:
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)  # 0o600 regardless of umask
+        os.write(fd, key.encode("utf-8"))
+        os.fsync(fd)
+    except OSError as e:
+        os.close(fd)
+        _unlink_quietly(str(key_file))
+        raise _storage_error(key_file, e) from e
+    os.close(fd)
+    return key
 
 
 def _fd_closed(fd: int) -> bool:
@@ -105,6 +163,10 @@ def _read_key(key_file: Path) -> str | None:
     """
     if not key_file.exists():
         return None
+    mode = stat.S_IMODE(key_file.stat().st_mode)
+    if mode & 0o077:
+        logger.warning("Secret key file %s has mode %o; it should be 0600 (chmod 600).",
+                       key_file, mode)
     content = key_file.read_text(encoding="utf-8").strip()
     return content if content else None
 
@@ -127,6 +189,18 @@ def get_secret_key(data_dir: Path) -> str:
         return existing
 
     key = _generate_key()
+    created = _create_key_exclusive(key_file, key)
+    if created is not None:
+        return created
+    # The file exists: another worker created it first (it is always complete,
+    # because it only appears via link), so everyone uses that key.
+    # With the O_EXCL fallback the winner's file is briefly empty, so wait a moment.
+    for _ in range(50):
+        existing = _read_key(key_file)
+        if existing is not None:
+            return existing
+        time.sleep(0.01)
+    # Still empty (e.g. a manual truncation, not a race): replace it.
     _write_key(key_file, key)
     return key
 

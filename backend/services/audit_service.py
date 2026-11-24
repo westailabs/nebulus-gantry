@@ -101,33 +101,34 @@ class AuditService:
                     stored_query = redact(query_text) if _redact_enabled() else query_text
                 else:
                     detail["query_chars"] = len(query_text)
-            # Read user attributes once: after a rollback the ORM object may be expired.
-            fields = dict(
-                user_id=getattr(user, "id", None),
-                user_email=getattr(user, "email", None) or user_email,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                doc_ids=json.dumps(doc_ids) if doc_ids is not None else None,
-                query_text=stored_query,
-                detail=json.dumps(detail) if detail else None,
-                ip_address=ip_address,
-            )
         except Exception:  # never break the request because of auditing
             write_failures += 1
             logger.exception("AUDIT WRITE FAILED for %s (%d failures so far)", action, write_failures)
             return
-        # One retry after rollback: a caller may have left the session in a failed
-        # state (e.g. a swallowed flush error), which would otherwise lose this row.
+        # A caller may have left the session failed (e.g. a swallowed flush error).
+        # Roll back before touching ORM attributes: reading an expired user on a
+        # failed session raises. Then try the write, rolling back and retrying once.
         for attempt in (1, 2):
             try:
-                self.db.add(AuditEvent(**fields))
+                if not self.db.is_active:
+                    self.db.rollback()
+                self.db.add(AuditEvent(
+                    user_id=getattr(user, "id", None),
+                    user_email=getattr(user, "email", None) or user_email,
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    doc_ids=json.dumps(doc_ids) if doc_ids is not None else None,
+                    query_text=stored_query,
+                    detail=json.dumps(detail) if detail else None,
+                    ip_address=ip_address,
+                ))
                 self.db.commit()
                 return
             except Exception:  # never break the request because of auditing
                 try:
                     self.db.rollback()
-                except Exception:
+                except Exception:  # noqa: S110 -- best effort
                     pass
                 if attempt == 2:
                     write_failures += 1

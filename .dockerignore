@@ -20,3 +20,12 @@ coverage.xml
 .mypy_cache
 .pytest_cache
 .hypothesize
+# Runtime data, generated keys, databases and env files never go into an image.
+data/
+**/data/
+.secret_key*
+**/.secret_key*
+*.db
+**/*.db
+.env*
+**/.env*

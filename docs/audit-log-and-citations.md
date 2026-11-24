@@ -43,7 +43,12 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
   document id are dropped. If nothing is left, the question is refused.
   The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
   floor off. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
-  `docker-compose.yml` default. Calibrated on 2026-11-22 against the
+  `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
+  turns the floor off. The demo instance (not started by compose) must set
+  `GANTRY_MIN_SOURCE_SIMILARITY=0.42` in its own env.
+- Pre-demo check: run `scripts/cpa_demo_smoke.py feature` against the demo instance and expect
+  `off-topic in scope ... refused=True`. `calibrate` reads raw similarities from
+  `POST /api/documents/search`, which applies no floor, so it still works while the floor is on. Calibrated on 2026-11-22 against the
   SAMPLE corpus with Chroma's default embedding: on-topic top hits were 0.458–0.548, and generic
   off-topic questions were 0.334–0.412. A same-domain question about an absent client
   ("Acme Corp payroll tax", 0.456) still passes the floor, and the model has to say the documents
