@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session as DBSession
 from backend.models.collection import Collection
 from backend.models.document import Document
 from backend.services.chroma_pool import get_vector_client
+from backend.services.keyword_boost import apply_boost, boost_settings
 
 logger = logging.getLogger(__name__)
 
@@ -485,8 +486,10 @@ class DocumentService:
 
         Returns:
             List of result dicts (document_id, filename, chunk_text,
-            similarity, chunk_index), best first. Hits below
-            GANTRY_MIN_SOURCE_SIMILARITY or without a document_id are dropped.
+            similarity, chunk_index, dense_similarity, keyword_boost), best first.
+            Hits below GANTRY_MIN_SOURCE_SIMILARITY or without a document_id are
+            dropped. A bounded lexical boost may lift an exact-term near-miss
+            above the floor; the floor itself is unchanged.
 
         Raises:
             RetrievalError: if the vector store is unavailable or the search fails.
@@ -507,13 +510,39 @@ class DocumentService:
             clauses.append({"document_id": {"$in": document_ids}})
         where = None if not clauses else clauses[0] if len(clauses) == 1 else {"$or": clauses}
 
-        results = self._search(user_id, query, where, top_k)
+        max_boost, window, min_score = boost_settings()
+        # Over-fetch when a boost may promote a near-miss that is just outside
+        # the raw top_k, then re-sort and truncate after the floor is applied.
+        candidate_k = top_k if max_boost <= 0 else max(top_k * 3, top_k)
+        results = self._search(user_id, query, where, candidate_k)
         floor = _min_similarity()
-        results = [
-            r for r in results
-            if r.get("document_id") and r.get("similarity", 0.0) >= floor
-        ]
-        return results[:top_k]
+        boosted: list[dict] = []
+        for r in results:
+            item = dict(r)
+            try:
+                dense = float(item.get("similarity", 0.0))
+            except (TypeError, ValueError):
+                dense = 0.0
+            if not math.isfinite(dense):
+                dense = 0.0
+            dense = min(max(dense, 0.0), 1.0)
+            similarity, boost = apply_boost(
+                query,
+                item.get("chunk_text") or "",
+                dense,
+                floor,
+                filename=item.get("filename") or "",
+                max_boost=max_boost,
+                window=window,
+                min_score=min_score,
+            )
+            item["dense_similarity"] = dense
+            item["keyword_boost"] = boost
+            item["similarity"] = similarity
+            if item.get("document_id") and similarity >= floor:
+                boosted.append(item)
+        boosted.sort(key=lambda h: h["similarity"], reverse=True)
+        return boosted[:top_k]
 
     def build_rag_context(
         self,
