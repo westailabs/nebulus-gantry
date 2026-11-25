@@ -292,7 +292,7 @@ export function Chat() {
                 {!sidebarOpen && (
                   <button
                     onClick={toggleSidebar}
-                    className="p-1.5 text-gray-500 hover:text-gray-300 transition-colors rounded"
+                    className="p-1.5 text-gray-400 hover:text-gray-200 transition-colors rounded"
                     aria-label="Open situation map"
                     title="Situation Map"
                   >

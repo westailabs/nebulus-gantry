@@ -114,7 +114,7 @@ export function Layout({ children }: LayoutProps) {
                 />
               </svg>
               <span className="hidden sm:inline">Search</span>
-              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs text-gray-500 bg-gray-800 rounded border border-gray-600">
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs text-gray-400 bg-gray-800 rounded border border-gray-600">
                 Ctrl+K
               </kbd>
             </button>

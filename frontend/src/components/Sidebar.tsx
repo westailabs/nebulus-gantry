@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { useUIStore } from '../stores/uiStore';
+import { useSidebarResize } from '../hooks/useSidebarResize';
 import { chatApi } from '../services/api';
 import { KnowledgeVault } from './KnowledgeVault';
 import type { Conversation, SearchResult } from '../types/api';
@@ -69,22 +70,23 @@ function ConversationItem({
   onExport,
 }: ConversationItemProps) {
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const title = conversation.title || 'New thread';
 
   return (
     <div
-      className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors duration-200 ${
+      className={`group relative flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors duration-200 ${
         isActive
           ? 'bg-gray-700 text-white'
-          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+          : 'text-gray-200 hover:bg-gray-800 hover:text-white'
       }`}
       onClick={onSelect}
     >
-      {/* Chat icon */}
       <svg
-        className="w-4 h-4 flex-shrink-0 text-gray-500"
+        className="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-400"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
+        aria-hidden="true"
       >
         <path
           strokeLinecap="round"
@@ -94,23 +96,37 @@ function ConversationItem({
         />
       </svg>
 
-      {/* Title */}
-      <span className="flex-1 truncate text-sm">
-        {conversation.title || 'New thread'}
+      <span
+        className="flex-1 min-w-0 text-sm leading-snug line-clamp-2 break-words pr-5 group-hover:pr-16 group-focus-within:pr-16"
+        title={title}
+      >
+        {title}
       </span>
 
+      {conversation.pinned && (
+        <span className="absolute right-2 top-2 text-yellow-400 group-hover:hidden group-focus-within:hidden" title="Pinned" aria-hidden="true">
+          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+          </svg>
+        </span>
+      )}
+
+      <div
+        className={`absolute right-1 top-1 z-10 items-center rounded-md bg-gray-800/95 shadow-sm ${
+          showExportMenu ? 'flex' : 'hidden group-hover:flex group-focus-within:flex'
+        }`}
+      >
       {/* Pin button - shows on hover or when pinned */}
       <button
-        className={`p-1 rounded hover:bg-gray-600 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
-          conversation.pinned
-            ? 'opacity-100 text-yellow-400'
-            : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-yellow-400'
+        className={`p-1 rounded hover:bg-gray-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 ${
+          conversation.pinned ? 'text-yellow-400' : 'text-gray-400 hover:text-yellow-400'
         }`}
         onClick={(e) => {
           e.stopPropagation();
           onPin();
         }}
         title={conversation.pinned ? 'Unpin thread' : 'Pin thread'}
+        aria-label={conversation.pinned ? 'Unpin thread' : 'Pin thread'}
       >
         <svg
           className="w-4 h-4"
@@ -130,12 +146,13 @@ function ConversationItem({
       {/* Export dropdown */}
       <div className="relative">
         <button
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-600 transition-all duration-200 focus:outline-none focus:opacity-100 focus:ring-2 focus:ring-blue-500/50"
+          className="p-1 rounded text-gray-400 hover:bg-gray-600 hover:text-white transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
           onClick={(e) => {
             e.stopPropagation();
             setShowExportMenu(!showExportMenu);
           }}
           title="Export thread"
+          aria-label="Export thread"
         >
           <svg
             className="w-4 h-4"
@@ -180,12 +197,13 @@ function ConversationItem({
 
       {/* Delete button - shows on hover */}
       <button
-        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-600 transition-all duration-200 focus:outline-none focus:opacity-100 focus:ring-2 focus:ring-blue-500/50"
+        className="p-1 rounded text-gray-400 hover:bg-gray-600 hover:text-red-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
         title="Delete thread"
+        aria-label="Delete thread"
       >
         <svg
           className="w-4 h-4"
@@ -201,6 +219,7 @@ function ConversationItem({
           />
         </svg>
       </button>
+      </div>
     </div>
   );
 }
@@ -217,7 +236,7 @@ function SearchResultItem({ result, onSelect }: SearchResultItemProps) {
       onClick={onSelect}
     >
       <div className="text-sm font-medium truncate">{result.conversation_title}</div>
-      <div className="text-xs text-gray-500 mt-1 line-clamp-2">
+      <div className="text-xs text-gray-400 mt-1 line-clamp-2">
         <span className={result.role === 'assistant' ? 'text-blue-400' : 'text-green-400'}>
           {result.role === 'assistant' ? 'AI: ' : 'You: '}
         </span>
@@ -246,6 +265,8 @@ export function Sidebar() {
   } = useChatStore();
 
   const { isSidebarOpen, closeSidebar } = useUIStore();
+  const resize = useSidebarResize();
+  const [handleActive, setHandleActive] = useState(false);
 
   // Local state for the input value (for debouncing)
   const [inputValue, setInputValue] = useState('');
@@ -324,12 +345,33 @@ export function Sidebar() {
   return (
     <aside
       className={`
-        w-64 h-full bg-gray-900 flex flex-col border-r border-gray-700/50
+        h-full bg-gray-900 flex flex-col border-r border-gray-700/50
         fixed md:relative z-50 md:z-auto
         transition-transform duration-300 ease-in-out
+        w-[min(20rem,85vw)] md:w-[var(--sidebar-w)] md:min-w-[200px] md:max-w-[50vw]
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}
+      style={{ ['--sidebar-w' as string]: `${resize.sidebarWidth}px` }}
+      data-sidebar-width={resize.sidebarWidth}
     >
+      <div
+        className="sidebar-resize-handle hidden md:block"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuemin={resize.minWidth}
+        aria-valuemax={resize.maxWidth}
+        aria-valuenow={resize.sidebarWidth}
+        tabIndex={0}
+        data-active={handleActive || undefined}
+        onPointerDown={(e) => { setHandleActive(true); resize.onPointerDown(e); }}
+        onPointerMove={resize.onPointerMove}
+        onPointerUp={() => { setHandleActive(false); resize.onPointerUp(); }}
+        onPointerCancel={() => { setHandleActive(false); resize.onPointerCancel(); }}
+        onLostPointerCapture={() => { setHandleActive(false); resize.onLostPointerCapture(); }}
+        onDoubleClick={resize.onDoubleClick}
+        onKeyDown={resize.onKeyDown}
+      />
       {/* New Chat Button */}
       <div className="p-3">
         <button
@@ -358,7 +400,7 @@ export function Sidebar() {
       <div className="px-3 pb-3">
         <div className="relative">
           <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -375,12 +417,12 @@ export function Sidebar() {
             placeholder="Search threads..."
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
+            className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent"
           />
           {inputValue && (
             <button
               onClick={handleClearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-300"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-200"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -396,11 +438,11 @@ export function Sidebar() {
       </div>
 
       {/* Conversation List or Search Results */}
-      <div className="flex-1 overflow-y-auto px-2 pb-4 scrollbar-thin">
+      <div className="flex-1 overflow-y-auto px-2 pb-4 sidebar-scroll">
         {showSearchResults ? (
           // Search Results View
           <div>
-            <h3 className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider">
+            <h3 className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider">
               {isSearching ? 'Searching...' : `${searchResults.length} Results`}
             </h3>
             {isSearching ? (
@@ -408,7 +450,7 @@ export function Sidebar() {
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
               </div>
             ) : searchResults.length === 0 ? (
-              <div className="text-center py-8 text-sm text-gray-500">
+              <div className="text-center py-8 text-sm text-gray-400">
                 No matches found
               </div>
             ) : (
@@ -431,13 +473,13 @@ export function Sidebar() {
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
               </div>
             ) : groupedConversations.length === 0 ? (
-              <div className="text-center py-8 text-sm text-gray-500">
+              <div className="text-center py-8 text-sm text-gray-400">
                 No threads yet
               </div>
             ) : (
               groupedConversations.map(([group, convs]) => (
                 <div key={group} className="mb-4">
-                  <h3 className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider flex items-center gap-1">
+                  <h3 className="px-3 py-2 text-xs font-medium text-gray-400 uppercase tracking-wider flex items-center gap-1">
                     {group === 'Pinned' && (
                       <svg className="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
