@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useUIStore, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH } from '../uiStore';
+import { useUIStore, loadSidebarWidth, SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH } from '../uiStore';
 
 describe('uiStore', () => {
   beforeEach(() => {
@@ -54,5 +54,31 @@ describe('sidebarWidth', () => {
     useUIStore.getState().resetSidebarWidth();
     expect(useUIStore.getState().sidebarWidth).toBe(SIDEBAR_DEFAULT_WIDTH);
     expect(localStorage.getItem('gantry-sidebar-width')).toBe(String(SIDEBAR_DEFAULT_WIDTH));
+  });
+});
+
+describe('loadSidebarWidth', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('uses the 256px default when the key is missing (Number(null) must not become 0)', () => {
+    expect(localStorage.getItem('gantry-sidebar-width')).toBeNull();
+    expect(Number(null)).toBe(0); // documents the bug: Number(null) is 0
+    expect(loadSidebarWidth()).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it('uses the default for blank, non-finite, and non-positive stored values', () => {
+    localStorage.setItem('gantry-sidebar-width', '');
+    expect(loadSidebarWidth()).toBe(SIDEBAR_DEFAULT_WIDTH);
+    localStorage.setItem('gantry-sidebar-width', '   ');
+    expect(loadSidebarWidth()).toBe(SIDEBAR_DEFAULT_WIDTH);
+    localStorage.setItem('gantry-sidebar-width', 'not-a-number');
+    expect(loadSidebarWidth()).toBe(SIDEBAR_DEFAULT_WIDTH);
+    localStorage.setItem('gantry-sidebar-width', '0');
+    expect(loadSidebarWidth()).toBe(SIDEBAR_DEFAULT_WIDTH);
+  });
+
+  it('returns a persisted in-range width', () => {
+    localStorage.setItem('gantry-sidebar-width', '320');
+    expect(loadSidebarWidth()).toBe(320);
   });
 });
