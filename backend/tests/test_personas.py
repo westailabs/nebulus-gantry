@@ -430,3 +430,23 @@ class TestDefaultPersona:
 
         # Default should be first
         assert personas[0].name == "Default"
+
+    def test_get_default_system_persona(self, db):
+        """Returns the system persona flagged default, or None."""
+        service = PersonaService(db)
+        assert service.get_default_system_persona() is None
+
+        service.create_persona(None, "Regular", "Prompt", is_default=False)
+        service.create_persona(None, "Default", "Prompt", is_default=True)
+
+        found = service.get_default_system_persona()
+        assert found is not None
+        assert found.name == "Default"
+
+    def test_get_default_system_persona_ignores_user_default(self, db):
+        """A user's is_default persona is not the system default."""
+        user = _make_user(db)
+        service = PersonaService(db)
+        service.create_persona(user.id, "Mine", "Prompt", is_default=True)
+
+        assert service.get_default_system_persona() is None

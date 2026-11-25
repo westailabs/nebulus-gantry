@@ -22,6 +22,8 @@ from backend.models.conversation import Conversation  # noqa: E402, F401
 from backend.models.message import Message  # noqa: E402, F401
 from backend.services.auth_service import AuthService  # noqa: E402
 from backend.services.chat_service import ChatService  # noqa: E402
+from backend.services.persona_service import PersonaService  # noqa: E402
+from backend.models.persona import Persona  # noqa: E402, F401
 
 
 # ── Test database setup ──────────────────────────────────────────────────────
@@ -365,3 +367,120 @@ class TestSendMessage:
             json={"content": "Hello"},
         )
         assert response.status_code == 401
+
+
+# ── Default / CPA system prompt tests ────────────────────────────────────────
+
+
+def _capture_send(client, token, conv_id, mock_llm_cls, mem_factory, graph_factory):
+    """POST a message and return the system prompt sent to the LLM."""
+    captured = {}
+
+    async def fake_stream(messages, model="default", temperature=None):
+        captured["messages"] = messages
+        captured["temperature"] = temperature
+        yield "ok"
+
+    mock_mem = MagicMock()
+    mock_mem.search_similar = AsyncMock(return_value=[])
+    mock_mem.embed_message = AsyncMock()
+    mem_factory.return_value = mock_mem
+
+    mock_graph = MagicMock()
+    mock_graph.extract_entities.return_value = []
+    mock_graph.get_related.return_value = []
+    graph_factory.return_value = mock_graph
+
+    mock_llm = MagicMock()
+    mock_llm.stream_chat = fake_stream
+    mock_llm.last_usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+    mock_llm_cls.return_value = mock_llm
+
+    response = client.post(
+        f"/api/chat/conversations/{conv_id}/messages",
+        json={"content": "Hello"},
+        cookies={"session_token": token},
+    )
+    assert response.status_code == 200
+    system = captured["messages"][0]
+    assert system["role"] == "system"
+    return system["content"], captured["temperature"]
+
+
+class TestDefaultPersonaSystemPrompt:
+    """Null persona_id must use the CPA / system default, never the Moto fallback."""
+
+    def test_null_persona_uses_fixture_prompt_when_none_seeded(self, client, test_user):
+        _, token = test_user
+        conv_id = client.post(
+            "/api/chat/conversations", cookies={"session_token": token}
+        ).json()["id"]
+
+        with patch("backend.routers.chat.LLMService") as MockLLM, \
+             patch("backend.routers.chat._create_memory_service") as mock_mem, \
+             patch("backend.routers.chat._create_graph_service") as mock_graph:
+            prompt, _ = _capture_send(client, token, conv_id, MockLLM, mock_mem, mock_graph)
+
+        assert "You are Moto" not in prompt
+        assert "CPA Assistant" in prompt
+        assert "Knowledge Vault" in prompt
+        assert "environment variables" in prompt
+
+    def test_null_persona_uses_seeded_default(self, client, db, test_user):
+        user, token = test_user
+        PersonaService(db).create_persona(
+            None, "CPA Assistant", "SEEDED_CPA_PROMPT", is_default=True, temperature=0.4
+        )
+        # Create the conversation *after* the default exists so persona_id is set,
+        # then clear it to simulate a legacy thread with persona_id NULL.
+        conv_id = client.post(
+            "/api/chat/conversations", cookies={"session_token": token}
+        ).json()["id"]
+        conv = db.get(Conversation, conv_id)
+        conv.persona_id = None
+        db.commit()
+
+        with patch("backend.routers.chat.LLMService") as MockLLM, \
+             patch("backend.routers.chat._create_memory_service") as mock_mem, \
+             patch("backend.routers.chat._create_graph_service") as mock_graph:
+            prompt, temperature = _capture_send(
+                client, token, conv_id, MockLLM, mock_mem, mock_graph
+            )
+
+        assert prompt.startswith("SEEDED_CPA_PROMPT")
+        assert "You are Moto" not in prompt
+        assert temperature == pytest.approx(0.4)
+
+    def test_explicit_persona_wins_over_default(self, client, db, test_user):
+        _, token = test_user
+        svc = PersonaService(db)
+        svc.create_persona(None, "CPA Assistant", "SEEDED_CPA_PROMPT", is_default=True)
+        other = svc.create_persona(None, "Tax Reviewer", "TAX_REVIEWER_PROMPT", is_default=False)
+
+        conv_id = client.post(
+            "/api/chat/conversations", cookies={"session_token": token}
+        ).json()["id"]
+        client.patch(
+            f"/api/chat/conversations/{conv_id}/persona",
+            json={"persona_id": other.id},
+            cookies={"session_token": token},
+        )
+
+        with patch("backend.routers.chat.LLMService") as MockLLM, \
+             patch("backend.routers.chat._create_memory_service") as mock_mem, \
+             patch("backend.routers.chat._create_graph_service") as mock_graph:
+            prompt, _ = _capture_send(client, token, conv_id, MockLLM, mock_mem, mock_graph)
+
+        assert prompt.startswith("TAX_REVIEWER_PROMPT")
+        assert "SEEDED_CPA_PROMPT" not in prompt
+
+    def test_create_conversation_assigns_default(self, client, db, test_user):
+        _, token = test_user
+        default = PersonaService(db).create_persona(
+            None, "CPA Assistant", "SEEDED_CPA_PROMPT", is_default=True
+        )
+        data = client.post(
+            "/api/chat/conversations", cookies={"session_token": token}
+        ).json()
+        assert data["persona_id"] == default.id
+        assert data["persona_name"] == "CPA Assistant"

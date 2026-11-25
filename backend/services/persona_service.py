@@ -219,6 +219,23 @@ class PersonaService:
         self.db.commit()
         return True
 
+    def get_default_system_persona(self) -> Persona | None:
+        """Return the system persona marked default, if any.
+
+        If more than one system persona is flagged default, the most recently
+        created wins. Callers should treat this as the prompt to use when a
+        conversation has no ``persona_id``.
+        """
+        return (
+            self.db.query(Persona)
+            .filter(
+                Persona.user_id.is_(None),
+                Persona.is_default.is_(True),
+            )
+            .order_by(Persona.created_at.desc(), Persona.id.desc())
+            .first()
+        )
+
     def set_conversation_persona(
         self, conversation_id: int, persona_id: int | None, user_id: int
     ) -> Conversation | None:

@@ -120,3 +120,91 @@ def test_seed_skips_missing_name(db_session):
         (p / "noname.json").write_text(json.dumps(data), encoding="utf-8")
         result = seed_personas(db=db_session, fixtures_dir=p)
     assert result["seeded"] == []
+
+
+# -- Fixture sync / default reconciliation --------------------------------
+
+
+def test_repo_fixtures_cpa_is_only_default(db_session):
+    """Repo fixtures seed CPA Assistant as the sole system default."""
+    from backend.scripts.seed_personas import _DEFAULT_FIXTURES_DIR
+
+    result = seed_personas(db=db_session, fixtures_dir=_DEFAULT_FIXTURES_DIR)
+    assert "CPA Assistant" in result["seeded"]
+    assert "Dealership Analyst" in result["seeded"]
+
+    defaults = (
+        db_session.query(Persona)
+        .filter(Persona.user_id.is_(None), Persona.is_default.is_(True))
+        .all()
+    )
+    assert len(defaults) == 1
+    assert defaults[0].name == "CPA Assistant"
+
+    dealership = (
+        db_session.query(Persona)
+        .filter(Persona.name == "Dealership Analyst")
+        .one()
+    )
+    assert dealership.is_default is False
+
+    # Re-run is a no-op besides skip.
+    again = seed_personas(db=db_session, fixtures_dir=_DEFAULT_FIXTURES_DIR)
+    assert again["seeded"] == []
+    assert again["updated"] == []
+    assert "CPA Assistant" in again["skipped"]
+    assert (
+        db_session.query(Persona)
+        .filter(Persona.is_default.is_(True))
+        .count()
+        == 1
+    )
+
+
+def test_seed_updates_stale_default_flag(db_session, fixtures_dir):
+    """Re-seeding syncs is_default when the fixture changes."""
+    seed_personas(db=db_session, fixtures_dir=fixtures_dir)
+    persona = (
+        db_session.query(Persona)
+        .filter(Persona.name == "Dealership Analyst")
+        .one()
+    )
+    assert persona.is_default is True
+
+    # Flip the fixture to not-default and change the prompt.
+    data = json.loads((fixtures_dir / "dealership_analyst.json").read_text())
+    data["is_default"] = False
+    data["system_prompt"] = "Updated analyst prompt."
+    (fixtures_dir / "dealership_analyst.json").write_text(json.dumps(data))
+
+    result = seed_personas(db=db_session, fixtures_dir=fixtures_dir)
+    assert "Dealership Analyst" in result["updated"]
+    assert result["seeded"] == []
+
+    db_session.refresh(persona)
+    assert persona.is_default is False
+    assert persona.system_prompt == "Updated analyst prompt."
+
+
+def test_seed_clears_leftover_system_default(db_session, fixtures_dir):
+    """A system default that is not in the fixture set is cleared."""
+    leftover = Persona(
+        user_id=None,
+        name="Legacy Default",
+        system_prompt="old",
+        is_default=True,
+    )
+    db_session.add(leftover)
+    db_session.commit()
+
+    result = seed_personas(db=db_session, fixtures_dir=fixtures_dir)
+    assert "Legacy Default" in result["updated"]
+    db_session.refresh(leftover)
+    assert leftover.is_default is False
+    # The fixture default remains default.
+    dealership = (
+        db_session.query(Persona)
+        .filter(Persona.name == "Dealership Analyst")
+        .one()
+    )
+    assert dealership.is_default is True

@@ -24,6 +24,7 @@ from backend.services.document_service import (
 from backend.services.llm_service import EMPTY_ANSWER_MESSAGE, LLMService
 from backend.services.model_service import ModelService
 from backend.platform import get_default_model
+from backend.services.system_prompt import chat_system_prompt
 from backend.schemas.chat import (
     ConversationResponse,
     ConversationDetailResponse,
@@ -475,17 +476,19 @@ async def send_message(  # noqa: C901
 
         return StreamingResponse(refuse(), media_type="text/event-stream")
 
-    # --- Persona: Load persona system prompt if assigned ---
+    # --- Persona: assigned persona, else the system default (CPA Assistant) ---
     persona = None
     persona_temperature = None
-    if conversation.persona_id:
-        try:
-            persona_service = _create_persona_service(db)
+    try:
+        persona_service = _create_persona_service(db)
+        if conversation.persona_id:
             persona = persona_service.get_persona(conversation.persona_id, user.id)
-            if persona:
-                persona_temperature = persona.temperature
-        except Exception as e:
-            logger.warning(f"Failed to load persona: {e}")
+        if persona is None:
+            persona = persona_service.get_default_system_persona()
+        if persona:
+            persona_temperature = persona.temperature
+    except Exception as e:
+        logger.warning(f"Failed to load persona: {e}")
 
     # Ensure requested model is loaded (auto-switch if needed)
     model_service = ModelService()
@@ -505,16 +508,11 @@ async def send_message(  # noqa: C901
     active_model = await model_service.get_active_model()
     model_name = active_model["name"] if active_model else "an AI assistant"
 
-    # Build system message
-    if persona:
-        # Use persona's system prompt
-        system_content = persona.system_prompt
-    else:
-        # Default system prompt
-        system_content = (
-            f"You are Moto, an AI assistant by West AI Labs, powered by {model_name}. "
-            "Be direct, helpful, and concise."
-        )
+    # Build system message: assigned/default persona, else the CPA fixture prompt.
+    system_content = chat_system_prompt(
+        persona.system_prompt if persona else None,
+        model_name,
+    )
 
     # Append context from LTM and RAG
     if ltm_context:

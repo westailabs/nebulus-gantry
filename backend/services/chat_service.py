@@ -9,7 +9,14 @@ class ChatService:
         self.db = db
 
     def create_conversation(self, user_id: int, title: str = "New Thread") -> Conversation:
-        conversation = Conversation(user_id=user_id, title=title)
+        from backend.services.persona_service import PersonaService
+
+        default = PersonaService(self.db).get_default_system_persona()
+        conversation = Conversation(
+            user_id=user_id,
+            title=title,
+            persona_id=default.id if default is not None else None,
+        )
         self.db.add(conversation)
         self.db.commit()
         self.db.refresh(conversation)
