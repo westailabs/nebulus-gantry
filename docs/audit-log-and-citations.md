@@ -41,6 +41,15 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
   `where` clause (collection ids OR document ids), so out-of-scope chunks can't crowd out in-scope ones.
 - Hits below `GANTRY_MIN_SOURCE_SIMILARITY` (default `0`, which turns the floor off) or without a
   document id are dropped. If nothing is left, the question is refused.
+  A bounded lexical (BM25-style) boost may be added to the dense similarity before the floor is
+  applied, so an exact-term near-miss such as "What was the Whitfield AGI?" (dense 0.3986) can
+  clear a 0.42 floor. The floor value itself is not changed. The boost is at most
+  `GANTRY_KEYWORD_BOOST_MAX` (default `0.05`, capped at `0.10`), only applies when the dense
+  score is within `GANTRY_KEYWORD_BOOST_WINDOW` (default `0.06`) of the floor, and only when
+  weighted query-term coverage in the chunk (or filename) is at least
+  `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Set `GANTRY_KEYWORD_BOOST=off` to disable.
+  The public `/api/documents/search` path is unboosted, so `calibrate` still measures raw
+  dense similarity.
   The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
   floor off. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
   `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
