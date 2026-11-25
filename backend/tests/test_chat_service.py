@@ -15,8 +15,10 @@ from backend.models.user import User  # noqa: E402, F401
 from backend.models.session import Session  # noqa: E402, F401
 from backend.models.conversation import Conversation  # noqa: E402, F401
 from backend.models.message import Message  # noqa: E402, F401
+from backend.models.persona import Persona  # noqa: E402, F401
 from backend.services.auth_service import AuthService  # noqa: E402
 from backend.services.chat_service import ChatService  # noqa: E402
+from backend.services.persona_service import PersonaService  # noqa: E402
 
 
 # -- Test database setup ------------------------------------------------------
@@ -80,6 +82,26 @@ class TestCreateConversation:
         conv = chat.create_conversation(user.id, title="My Custom Chat")
 
         assert conv.title == "My Custom Chat"
+
+    def test_assigns_default_system_persona(self, db):
+        """New conversations get the system default persona when one exists."""
+        user = _make_user(db)
+        default = PersonaService(db).create_persona(
+            None, "CPA Assistant", "CPA prompt", is_default=True
+        )
+        chat = ChatService(db)
+        conv = chat.create_conversation(user.id)
+
+        assert conv.persona_id == default.id
+        assert conv.persona_name == "CPA Assistant"
+
+    def test_leaves_persona_unset_when_no_default(self, db):
+        """Without a system default, new conversations have no persona."""
+        user = _make_user(db)
+        chat = ChatService(db)
+        conv = chat.create_conversation(user.id)
+        assert conv.persona_id is None
+        assert conv.persona_name is None
 
 
 # -- TestGetConversations -----------------------------------------------------

@@ -27,3 +27,9 @@ class Conversation(Base):
         "Message", back_populates="conversation", cascade="all, delete-orphan"
     )
     persona = relationship("Persona")
+
+    @property
+    def persona_name(self) -> str | None:
+        """Assigned persona name for API display, if a persona is loaded."""
+        persona = self.persona
+        return persona.name if persona is not None else None
