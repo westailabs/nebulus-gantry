@@ -1,10 +1,21 @@
 import { type ReactNode, useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useUIStore } from '../stores/uiStore';
 import { SearchModal } from './SearchModal';
 
+function navLinkClass({ isActive }: { isActive: boolean }) {
+  return [
+    'text-sm rounded px-2 py-1.5 transition-colors duration-200',
+    'focus:outline-none focus:ring-2 focus:ring-blue-500/50',
+    isActive
+      ? 'text-white bg-gray-700 font-medium'
+      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/60',
+  ].join(' ');
+}
+
 interface LayoutProps {
+
   children: ReactNode;
 }
 
@@ -51,7 +62,7 @@ export function Layout({ children }: LayoutProps) {
     <div className="min-h-screen bg-gray-900">
       {/* Header */}
       <header className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* Hamburger menu for mobile */}
             <button
@@ -83,14 +94,18 @@ export function Layout({ children }: LayoutProps) {
               </svg>
             </button>
 
-            <h1 className="flex items-center gap-2 text-n-text">
+            <Link
+              to="/"
+              aria-label="Gantry home"
+              className="flex items-center gap-2 text-n-text rounded px-1 -ml-1 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            >
               <svg className="h-4 w-4 opacity-90" viewBox="0 0 128 128" fill="none" stroke="currentColor" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M24 72H48L62 36L78 92L90 52H108" />
               </svg>
               <span className="text-sm tracking-[0.12em] font-semibold">
                 NEBULUS <span className="text-n-text-secondary font-medium">GANTRY</span>
               </span>
-            </h1>
+            </Link>
           </div>
 
           <div className="flex items-center gap-3">
@@ -114,40 +129,36 @@ export function Layout({ children }: LayoutProps) {
                 />
               </svg>
               <span className="hidden sm:inline">Search</span>
-              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs text-gray-500 bg-gray-800 rounded border border-gray-600">
+              <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-xs text-gray-400 bg-gray-800 rounded border border-gray-600">
                 Ctrl+K
               </kbd>
             </button>
 
             {user && (
-              <>
+              <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2">
+                <NavLink to="/" end className={navLinkClass}>
+                  Home
+                </NavLink>
                 {user.role === 'admin' && (
                   <>
                     {overlordAvailable && (
-                      <Link
-                        to="/overlord"
-                        className="text-sm text-gray-400 hover:text-gray-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded px-2 py-1"
-                      >
+                      <NavLink to="/overlord" className={navLinkClass}>
                         Overlord
-                      </Link>
+                      </NavLink>
                     )}
-                    <Link
-                      to="/orchestrator"
-                      className="text-sm text-gray-400 hover:text-gray-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded px-2 py-1"
-                    >
+                    <NavLink to="/orchestrator" className={navLinkClass}>
                       Orchestrator
-                    </Link>
-                    <Link
-                      to="/admin"
-                      className="text-sm text-gray-400 hover:text-gray-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded px-2 py-1"
-                    >
+                    </NavLink>
+                    <NavLink to="/admin" className={navLinkClass}>
                       Admin
-                    </Link>
+                    </NavLink>
                   </>
                 )}
-                <Link
+                <NavLink
                   to="/settings"
-                  className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded px-2 py-1"
+                  className={({ isActive }) =>
+                    `${navLinkClass({ isActive })} flex items-center gap-1.5`
+                  }
                   title={user.display_name}
                 >
                   <span className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-medium text-white">
@@ -156,14 +167,14 @@ export function Layout({ children }: LayoutProps) {
                   <span className="hidden sm:inline">
                     {user.display_name}
                   </span>
-                </Link>
+                </NavLink>
                 <button
                   onClick={() => logout()}
-                  className="text-sm text-gray-400 hover:text-gray-200 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50 rounded px-2 py-1"
+                  className="text-sm text-gray-400 hover:text-gray-200 rounded px-2 py-1.5 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 >
                   Logout
                 </button>
-              </>
+              </nav>
             )}
           </div>
         </div>
