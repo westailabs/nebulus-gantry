@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from backend.config import settings
+
 _CPA_FIXTURE = (
     Path(__file__).resolve().parent.parent / "fixtures" / "personas" / "cpa_assistant.json"
 )
@@ -22,6 +24,20 @@ def default_system_prompt() -> str:
     return prompt
 
 
+# CPA demo mode shows the pane as "Client Files"; the prompt must use the visible name.
+_VAULT_NAME = "Knowledge Vault"
+_DEMO_VAULT_NAME = "Client Files"
+
+
+def demo_prompt(prompt: str) -> str:
+    """The demo-mode variant of a persona prompt: the pane is called Client Files.
+
+    Applied at chat time only while GANTRY_DEMO_MODE is on. The stored persona
+    (and the prompt with the flag off) is unchanged.
+    """
+    return prompt.replace(_VAULT_NAME, _DEMO_VAULT_NAME)
+
+
 def chat_system_prompt(persona_prompt: str | None, model_name: str | None = None) -> str:
     """Build the system message for a chat turn.
 
@@ -30,6 +46,8 @@ def chat_system_prompt(persona_prompt: str | None, model_name: str | None = None
     back to a hardcoded identity that disagrees with the fixtures.
     """
     base = persona_prompt or default_system_prompt()
+    if settings.demo_mode:
+        base = demo_prompt(base)
     if model_name and model_name not in ("an AI assistant", "default"):
         return f"{base}\n\nThe local model for this session is {model_name}."
     return base

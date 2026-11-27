@@ -62,3 +62,29 @@ def test_chat_system_prompt_uses_assigned_persona():
 def test_chat_system_prompt_skips_generic_model_name():
     prompt = chat_system_prompt("Just the persona.", model_name="an AI assistant")
     assert prompt == "Just the persona."
+
+
+def test_demo_mode_prompt_says_client_files_not_knowledge_vault(monkeypatch):
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "demo_mode", True)
+    for prompt in (chat_system_prompt(None), chat_system_prompt(default_system_prompt(), "bolt")):
+        assert "Client Files" in prompt
+        assert "Knowledge Vault" not in prompt
+        assert "Docs control" in prompt  # the rest of the prompt is untouched
+
+
+def test_flag_off_prompt_is_unchanged(monkeypatch):
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "demo_mode", False)
+    assert chat_system_prompt(None) == default_system_prompt()
+    assert "Knowledge Vault" in chat_system_prompt(None)
+    assert "Client Files" not in chat_system_prompt(None)
+
+
+def test_stored_persona_fixture_is_never_rewritten(monkeypatch):
+    from backend.config import settings
+
+    monkeypatch.setattr(settings, "demo_mode", True)
+    assert "Knowledge Vault" in default_system_prompt()
