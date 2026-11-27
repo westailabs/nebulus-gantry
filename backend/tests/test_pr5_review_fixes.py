@@ -147,7 +147,7 @@ class TestItem2Floor:
     def test_demo_value_committed_in_env_example_and_compose(self):
         from pathlib import Path
         root = Path(__file__).resolve().parents[2]
-        assert "GANTRY_MIN_SOURCE_SIMILARITY=0.42" in (root / ".env.example").read_text()
+        assert "GANTRY_MIN_SOURCE_SIMILARITY=0.40" in (root / ".env.example").read_text()
         assert "GANTRY_MIN_SOURCE_SIMILARITY" in (root / "docker-compose.yml").read_text()
         assert (root / "scripts/cpa_demo_smoke.py").exists()
 

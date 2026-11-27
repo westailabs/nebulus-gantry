@@ -31,7 +31,7 @@ class RetrievalError(Exception):
 def _min_similarity() -> float:
     """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1]; 0 (the default) turns the floor off.
 
-    The recommended CPA-demo value is 0.42 (see .env.example and docs). Invalid or
+    The recommended CPA-demo value is 0.40 (see .env.example and docs). Invalid or
     non-finite values log a WARNING and fall back to 0 (off), never to "refuse all".
     """
     raw = (os.getenv("GANTRY_MIN_SOURCE_SIMILARITY") or "").strip()

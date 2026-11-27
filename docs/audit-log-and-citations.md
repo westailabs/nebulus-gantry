@@ -67,10 +67,15 @@ says it is showing the thread's entries.
   The public `/api/documents/search` path is unboosted, so `calibrate` still measures raw
   dense similarity.
   The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
-  floor off. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
-  `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
+  floor off. **Recommended for the CPA demo: `0.40`**, which is committed in `.env.example` and is the
+  `docker-compose.yml` default. Under compose a blank value also gets 0.40, so only an explicit `0`
   turns the floor off. The demo instance (not started by compose) must set
-  `GANTRY_MIN_SOURCE_SIMILARITY=0.42` in its own env.
+  `GANTRY_MIN_SOURCE_SIMILARITY=0.40` in its own env.
+  Calibration (2026-11-26, 7-file SAMPLE corpus, Chroma default embedding): the lowest
+  starter-card match is 0.417 (missing-documents, no boost), the highest generic off-topic
+  question 0.385, so 0.40 sits at the midpoint (the earlier 0.42 refused the missing-documents
+  card). CPA-shaped questions about clients that aren't in the corpus score up to 0.505, above
+  any usable floor; the model's grounded "could not find" answer handles those, not the floor.
 - Pre-demo check: run `scripts/cpa_demo_smoke.py feature` against the demo instance and expect
   `off-topic in scope ... refused=True`. `calibrate` reads raw similarities from
   `POST /api/documents/search`, which applies no floor, so it still works while the floor is on. Calibrated on 2026-11-22 against the
