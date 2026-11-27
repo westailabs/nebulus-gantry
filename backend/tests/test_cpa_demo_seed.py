@@ -254,13 +254,10 @@ def test_url_and_admin_password_file_are_required_not_defaulted(monkeypatch, tmp
 HOST_SPECIFIC = ("80" + "13", "." + "secrets", "." + "nebulus", "nebulus" + "-gantry", "demo/" + "gantry-cpa")
 
 
-HOST_SPECIFIC = ("80" + "13", "." + "secrets", "." + "nebulus", "nebulus" + "-gantry", "demo/" + "gantry-cpa")
-
-
 def test_no_host_specific_paths_or_ports_are_baked_into_the_scripts():
     for name in ("cpa_demo_seed.py", "cpa_demo_rehearse.py"):
         text = (REPO / "scripts" / name).read_text()
-        for needle in HOST_SPECIFIC + ("/Users/", "/home/"):
+        for needle in HOST_SPECIFIC + ("/Us" + "ers/", "/ho" + "me/"):
             assert needle not in text, f"{needle!r} in {name}"
     docs = (REPO / "docs" / "cpa-demo-mode.md").read_text()
     for needle in HOST_SPECIFIC:
