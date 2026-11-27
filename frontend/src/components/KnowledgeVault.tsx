@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useDocumentStore } from '../stores/documentStore';
+import { useConfigStore } from '../stores/configStore';
 
 export function KnowledgeVault() {
   const {
@@ -15,7 +16,13 @@ export function KnowledgeVault() {
     deleteDocument,
   } = useDocumentStore();
 
-  const [isExpanded, setIsExpanded] = useState(false);
+  // CPA demo mode: labeled "Client Files" and open by default. Until the user toggles
+  // it, the pane follows the runtime flag (which may arrive after first render).
+  const demoMode = useConfigStore((state) => state.demoMode);
+  const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+  const isExpanded = userExpanded ?? demoMode;
+  const setIsExpanded = (value: boolean) => setUserExpanded(value);
+  const paneLabel = demoMode ? 'Client Files' : 'Knowledge Vault';
   const [showNewCollection, setShowNewCollection] = useState(false);
   const [newCollectionName, setNewCollectionName] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -89,12 +96,13 @@ export function KnowledgeVault() {
       <button
         className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider hover:bg-gray-800 rounded"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
       >
         <span className="flex items-center gap-1">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          Knowledge Vault
+          {paneLabel}
         </span>
         <svg
           className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}

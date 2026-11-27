@@ -37,6 +37,7 @@ import type {
   AuditListResponse,
   AuditFilters,
   UIConfig,
+  MessageAuditEntry,
 } from '../types/api';
 
 export type ChatStreamEvent =
@@ -129,6 +130,10 @@ export const chatApi = {
 
   search: (query: string) =>
     fetchApi<SearchResponse>(`/api/chat/search?q=${encodeURIComponent(query)}`),
+
+  /** CPA demo mode: the audit row for one of your own assistant answers. */
+  getMessageAudit: (messageId: number) =>
+    fetchApi<MessageAuditEntry>(`/api/chat/messages/${messageId}/audit`),
 
   pinConversation: (id: number) =>
     fetchApi<Conversation>(`/api/chat/conversations/${id}/pin`, { method: 'PATCH' }),

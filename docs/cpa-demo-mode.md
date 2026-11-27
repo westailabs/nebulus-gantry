@@ -21,3 +21,17 @@ authentication, by `GET /api/config`:
 The frontend fetches this on load, so an instance can switch profiles with an env change
 and a backend restart, without rebuilding the frontend. If the fetch fails the UI stays in
 the normal (non-demo) profile.
+
+## What the flag changes
+
+With the flag off, every item below stays exactly as it is in normal Gantry.
+
+- **Dev chrome (non-admins only).** No Situation Map toggle or panel (so no Halt All or
+  Daily Budget), no model picker (messages go out with no model override, so the
+  instance's configured model is used), no Orchestrator tab, and `/orchestrator` redirects
+  home. Admins keep all of it for setup.
+- **Starter cards.** Four questions over Client Files replace the four code cards. The copy
+  lives in `frontend/src/data/cpaStarterCards.json`, which the rehearsal script reads too.
+- **Client Files.** The Knowledge Vault pane is labeled "Client Files" and starts open.
+- **Audit link.** Each assistant answer has a "View audit entry" link that opens its
+  `chat.query` row (your own answers only). See `docs/audit-log-and-citations.md`.

@@ -36,6 +36,17 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
   there as well. A deployment that must not keep client text has to run without LTM and apply a
   conversation retention policy. Both are outside this branch.
 
+### Per-answer audit link (CPA demo mode)
+With `GANTRY_DEMO_MODE` on, every assistant answer shows a "View audit entry" link. It
+calls `GET /api/chat/messages/{message_id}/audit`, which returns the `chat.query` row whose
+`detail.message_id` matches, but only if the caller wrote that row for a conversation they
+own. Admins get no wider view through this route; the full list and CSV stay under
+`/api/admin/audit`. The response leaves out `ip_address` and keeps only the non-sensitive
+`detail` keys (outcome, refused, scoped, model, correlation_id, message_id, timing). The
+route returns 404 when demo mode is off. Refusals now record their `message_id` too, and the
+refusal `done` event carries `correlation_id` like a normal answer. Rows written before this
+change have no `message_id` on refusals, so those older refusals show "No audit entry".
+
 ## Citations
 - When a conversation has a document scope, the scope goes into the vector query itself as a Chroma
   `where` clause (collection ids OR document ids), so out-of-scope chunks can't crowd out in-scope ones.

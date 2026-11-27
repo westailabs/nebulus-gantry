@@ -52,6 +52,28 @@ export interface AuditEvent {
   ip_address: string | null;
 }
 
+/** The chat.query audit row behind one of the caller's own answers (CPA demo mode). */
+export interface MessageAuditEntry {
+  id: number;
+  timestamp: string | null;
+  user_id: number | null;
+  user_email: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  doc_ids: number[];
+  query_text: string | null;
+  detail: {
+    outcome?: string;
+    refused?: boolean;
+    scoped?: boolean;
+    model?: string | null;
+    correlation_id?: string;
+    message_id?: number | null;
+    [key: string]: unknown;
+  };
+}
+
 export interface AuditListResponse {
   total: number;
   events: AuditEvent[];
@@ -73,6 +95,8 @@ export interface UIConfig {
 export interface MessageMeta {
   sources?: Citation[];
   refused?: boolean;
+  /** Ties the streamed answer to its chat.query audit row. */
+  correlation_id?: string;
   generation_time_ms?: number;
   prompt_tokens?: number;
   completion_tokens?: number;

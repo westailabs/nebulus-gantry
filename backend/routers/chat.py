@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session as DBSession
 from backend.config import settings
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
-from backend.services.audit_service import AuditService, client_ip
+from backend.models.audit_event import AuditEvent
+from backend.models.conversation import Conversation
+from backend.models.message import Message
+from backend.services.audit_service import AuditService, client_ip, event_to_dict
 from backend.services.chat_service import ChatService
 from backend.services.document_service import (
     RetrievalError,
@@ -377,6 +380,58 @@ def export_report(
     )
 
 
+# Fields of a chat.query audit row a user may see for their own answer (no IP address).
+_MESSAGE_AUDIT_DETAIL_KEYS = ("outcome", "refused", "scoped", "model", "correlation_id", "message_id",
+                              "retrieval_error", "error_type", "generation_time_ms", "query_chars")
+
+
+@router.get("/messages/{message_id}/audit")
+def get_message_audit_entry(
+    message_id: int,
+    user=Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The ``chat.query`` audit row behind one of *your own* assistant answers.
+
+    CPA demo mode only (404 otherwise): lets a non-admin open the logged entry for
+    an answer in one click without exposing the admin audit list or CSV export.
+    Only rows the caller wrote for a conversation they own are returned.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+    not_found = HTTPException(status_code=404, detail="No audit entry for this message")
+    msg = (
+        db.query(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .filter(Message.id == message_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if msg is None or msg.role != "assistant":
+        raise not_found
+    rows = (
+        db.query(AuditEvent)
+        .filter(
+            AuditEvent.action == "chat.query",
+            AuditEvent.user_id == user.id,
+            AuditEvent.resource_type == "conversation",
+            AuditEvent.resource_id == msg.conversation_id,
+        )
+        .order_by(AuditEvent.id.desc())
+        .all()
+    )
+    for row in rows:
+        try:
+            detail = json.loads(row.detail) if row.detail else {}
+        except ValueError:
+            continue
+        if detail.get("message_id") == message_id:
+            entry = event_to_dict(row)
+            entry.pop("ip_address", None)
+            entry["detail"] = {k: detail[k] for k in _MESSAGE_AUDIT_DETAIL_KEYS if k in detail}
+            return entry
+    raise not_found
+
+
 @router.post("/conversations/{conversation_id}/messages")
 async def send_message(  # noqa: C901
     conversation_id: int,
@@ -457,12 +512,13 @@ async def send_message(  # noqa: C901
         async def refuse():
             nonlocal outcome
             start_time = time.monotonic()
+            refusal_message_id = None
             try:
                 yield f"data: {json.dumps({'content': message})}\n\n"
                 meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
-                        "sources": [], "refused": True}
+                        "sources": [], "refused": True, "correlation_id": correlation_id}
                 yield f"event: done\ndata: {json.dumps(meta)}\n\n"
-                chat.add_message(conversation_id, "assistant", message)
+                refusal_message_id = chat.add_message(conversation_id, "assistant", message).id
             except (GeneratorExit, asyncio.CancelledError):
                 outcome = "client_aborted"
                 raise
@@ -471,7 +527,8 @@ async def send_message(  # noqa: C901
                     "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
                     doc_ids=[], query_text=request.content, ip_address=ip,
                     detail={"outcome": outcome, "refused": True, "retrieval_error": retrieval_error,
-                            "scoped": True, "model": None, "correlation_id": correlation_id},
+                            "scoped": True, "model": None, "correlation_id": correlation_id,
+                            "message_id": refusal_message_id},
                 )
 
         return StreamingResponse(refuse(), media_type="text/event-stream")
