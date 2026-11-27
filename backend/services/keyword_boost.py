@@ -105,7 +105,13 @@ def query_terms(query: str) -> list[str]:
     """Distinctive query terms, order-preserving and de-duplicated."""
     seen: set[str] = set()
     terms: list[str] = []
-    for tok in tokenize(query):
+    for raw in _TOKEN.findall(query or ""):
+        # Stopwords are checked on the raw token, before plural folding: "does" must not
+        # become the distinctive term "doe".
+        raw = raw.lower()
+        if raw in _STOPWORDS:
+            continue
+        tok = fold_plural(raw)
         if tok in _STOPWORDS or len(tok) < 2 or tok in seen:
             continue
         seen.add(tok)

@@ -82,3 +82,29 @@ class TestPluralFolding:
 
     def test_unrelated_text_still_scores_zero(self):
         assert lexical_score("documents missing", "the weather is nice") == 0.0
+
+
+class TestStopwordsAreCheckedBeforeFolding:
+    """Plumb R4-1: fold_plural('does') == 'doe' must not turn a stopword into a query term."""
+
+    @pytest.mark.parametrize("query", ["What does the IRS notice say?", "How does it work?", "Does it rain?"])
+    def test_does_is_not_a_query_term(self, query):
+        from backend.services.keyword_boost import query_terms
+        assert "doe" not in query_terms(query) and "does" not in query_terms(query)
+
+    def test_what_does_the_irs_notice_say_terms(self):
+        from backend.services.keyword_boost import query_terms
+        assert query_terms("What does the IRS notice say?") == ["irs", "notice", "say"]
+
+    def test_does_tax_matter_does_not_inflate_coverage(self):
+        # 'does' appears in plenty of chunks; it must not be what pushes coverage up.
+        assert lexical_score("Does tax matter?", "The firm does the work.") == 0.0
+        with_does = lexical_score("Does tax matter?", "tax matter. it does")
+        without_does = lexical_score("tax matter?", "tax matter. it does")
+        assert with_does == without_does
+
+    def test_generic_questions_with_does_score_zero_on_every_sample(self):
+        for path in sorted(SAMPLES.glob("SAMPLE_*.txt")):
+            text = path.read_text()
+            for q in ("How does it work?", "Does it rain?", "What does Paris do?"):
+                assert lexical_score(q, text) == 0.0, (path.name, q)
