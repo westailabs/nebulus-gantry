@@ -1,0 +1,25 @@
+{
+  "_comment": "CPA demo starter cards (GANTRY_DEMO_MODE). Single source of truth: the UI imports this file and scripts/cpa_demo_rehearse.py rehearses every card in it. Each prompt is a question over the synthetic SAMPLE Client Files; no drafting tasks, no tax-law research.",
+  "cards": [
+    {
+      "id": "missing-documents",
+      "label": "Which clients are still missing documents?",
+      "prompt": "Using our open document requests, which clients are still missing documents, and what is outstanding for each?"
+    },
+    {
+      "id": "irs-notice",
+      "label": "Ask about a client email or IRS notice",
+      "prompt": "What does the IRS CP2000 notice for Dana and Riley Whitfield propose, and when is the response due?"
+    },
+    {
+      "id": "client-1099s",
+      "label": "Summarize a client's 1099s",
+      "prompt": "Summarize the 2025 Forms 1099 we have on file for Dana Whitfield and Harbor Lane Bakery LLC."
+    },
+    {
+      "id": "yoy-return-changes",
+      "label": "Year-over-year return changes",
+      "prompt": "How did Dana Whitfield's 2025 Form 1040 change from her 2024 return in AGI, total tax, and refund?"
+    }
+  ]
+}

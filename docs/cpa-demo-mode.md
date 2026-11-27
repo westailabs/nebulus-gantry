@@ -31,7 +31,7 @@ With the flag off, every item below stays exactly as it is in normal Gantry.
   instance's configured model is used), no Orchestrator tab, and `/orchestrator` redirects
   home. Admins keep all of it for setup.
 - **Starter cards.** Four questions over Client Files replace the four code cards. The copy
-  lives in `frontend/src/data/cpaStarterCards.json`, which the rehearsal script reads too.
+  lives in `frontend/src/demo/cpaStarterCards.json`, which the rehearsal script reads too.
 - **Client Files.** The Knowledge Vault pane is labeled "Client Files" and starts open.
 - **Audit link.** Each assistant answer has a "View audit entry" link that opens its
   `chat.query` row (your own answers only). See `docs/audit-log-and-citations.md`.

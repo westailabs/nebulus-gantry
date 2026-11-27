@@ -88,7 +88,7 @@ change have no `message_id` on refusals, so those older refusals show "No audit 
 
 Run `python scripts/cpa_demo_rehearse.py --apply` against the demo instance, logged in as
 the walkthrough user (`GANTRY_SMOKE_EMAIL`, `GANTRY_SMOKE_PASSWORD_FILE`), before every
-demo. It asks every CPA starter card (the same `frontend/src/data/cpaStarterCards.json` the
+demo. It asks every CPA starter card (the same `frontend/src/demo/cpaStarterCards.json` the
 UI shows) against the `SAMPLE Clients (synthetic)` collection. A card fails unless its answer
 holds the expected facts from `scripts/fixtures/cpa_rehearsal_expected.json`, at least one
 citation comes from the expected `SAMPLE_*` file, and the turn has a `chat.query` audit row

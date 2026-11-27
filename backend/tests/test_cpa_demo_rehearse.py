@@ -53,7 +53,7 @@ def test_every_expected_fact_and_source_is_in_the_synthetic_corpus(card_id):
 
 
 def test_the_ui_and_the_rehearsal_read_the_same_card_file():
-    ui_cards = json.loads((REPO / "frontend" / "src" / "data" / "cpaStarterCards.json").read_text())["cards"]
+    ui_cards = json.loads((REPO / "frontend" / "src" / "demo" / "cpaStarterCards.json").read_text())["cards"]
     assert [c["prompt"] for c in ui_cards] == [c["prompt"] for c in CARDS]
 
 

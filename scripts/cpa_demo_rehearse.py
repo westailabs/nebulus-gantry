@@ -2,7 +2,7 @@
 """Pre-demo rehearsal: run every CPA starter card and check facts, citations and the audit row.
 
 Run this before every demo (CPA demo mode, issue 3.3). The cards come from
-frontend/src/data/cpaStarterCards.json, the same file the UI renders, and the expected
+frontend/src/demo/cpaStarterCards.json, the same file the UI renders, and the expected
 facts from scripts/fixtures/cpa_rehearsal_expected.json. Synthetic SAMPLE documents only.
 
   python scripts/cpa_demo_rehearse.py            # dry run: writes the plan to the log,
@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CARDS_FILE = REPO_ROOT / "frontend" / "src" / "data" / "cpaStarterCards.json"
+CARDS_FILE = REPO_ROOT / "frontend" / "src" / "demo" / "cpaStarterCards.json"
 EXPECTED_FILE = REPO_ROOT / "scripts" / "fixtures" / "cpa_rehearsal_expected.json"
 CORPUS_DIR = REPO_ROOT / "scripts" / "fixtures" / "cpa_demo_samples"
 FORBIDDEN_CARD_TEXT = re.compile(r"engagement letter|tax[- ]law|internal revenue code|\bresearch\b", re.IGNORECASE)

@@ -1,5 +1,5 @@
 {
-  "_comment": "Expected facts per CPA starter card (ids from frontend/src/data/cpaStarterCards.json). Every fact is a list of acceptable spellings; the answer must contain at least one spelling of every fact. Every value appears in scripts/fixtures/cpa_demo_samples/SAMPLE_*.txt. 'sources' lists the files at least one citation must come from.",
+  "_comment": "Expected facts per CPA starter card (ids from frontend/src/demo/cpaStarterCards.json). Every fact is a list of acceptable spellings; the answer must contain at least one spelling of every fact. Every value appears in scripts/fixtures/cpa_demo_samples/SAMPLE_*.txt. 'sources' lists the files at least one citation must come from.",
   "collection": "SAMPLE Clients (synthetic)",
   "cards": {
     "missing-documents": {

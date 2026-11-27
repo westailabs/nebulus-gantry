@@ -11,7 +11,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
 import { useConfigStore, useHideDevChrome } from '../stores/configStore';
-import { quickPromptsFor } from '../data/quickPrompts';
+import { quickPromptsFor } from '../demo/quickPrompts';
 import { chatApi, dispatchApi } from '../services/api';
 import type { Citation, Message, MessageMeta, Conversation, Persona } from '../types/api';
 
