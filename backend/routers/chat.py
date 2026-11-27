@@ -584,19 +584,26 @@ async def send_message(  # noqa: C901
     except Exception as e:
         logger.warning(f"Failed to load persona: {e}")
 
+    # CPA demo mode: the model picker is hidden for non-admins, and the API enforces it. A
+    # non-admin's model override is ignored (the instance's configured model is used), so
+    # they cannot trigger a server-side model switch. Flag off: unchanged for every role.
+    requested_model = request.model
+    if settings.demo_mode and getattr(user, "role", None) != "admin":
+        requested_model = None
+
     # Ensure requested model is loaded (auto-switch if needed)
     model_service = ModelService()
-    if request.model:
+    if requested_model:
         active_model = await model_service.get_active_model()
-        if not active_model or active_model["id"] != request.model:
-            logger.info(f"Switching model from {active_model['id'] if active_model else 'none'} to {request.model}")
-            switch_success = await model_service.switch_model(request.model)
+        if not active_model or active_model["id"] != requested_model:
+            logger.info(f"Switching model from {active_model['id'] if active_model else 'none'} to {requested_model}")
+            switch_success = await model_service.switch_model(requested_model)
             if not switch_success:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to load model '{request.model}'. Please try again or select a different model."
+                    detail=f"Failed to load model '{requested_model}'. Please try again or select a different model."
                 )
-            logger.info(f"Model switched successfully to {request.model}")
+            logger.info(f"Model switched successfully to {requested_model}")
 
     # Query active model name for system prompt
     active_model = await model_service.get_active_model()
@@ -624,7 +631,7 @@ async def send_message(  # noqa: C901
 
     # Stream response from LLM — use requested model or default
     llm = LLMService()
-    llm_model = request.model or get_default_model()
+    llm_model = requested_model or get_default_model()
 
     async def generate():  # noqa: C901
         full_response = ""

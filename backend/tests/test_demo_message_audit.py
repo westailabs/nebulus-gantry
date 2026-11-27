@@ -260,3 +260,55 @@ class TestConversationAuditFallback:
         monkeypatch.setattr(settings, "demo_mode", False)
         assert client.get(f"/api/chat/conversations/{conv_id}/audit",
                           cookies={"session_token": token}).status_code == 404
+
+
+class TestModelOverrideInDemoMode:
+    """Lookout should-fix: the hidden model picker must be enforced server-side."""
+
+    def _post(self, client, token, conv_id, model):
+        mem = MagicMock()
+        mem.search_similar = AsyncMock(return_value=[])
+        mem.embed_message = AsyncMock()
+        graph = MagicMock()
+        graph.extract_entities.return_value = []
+        graph.get_related.return_value = []
+        seen = {}
+
+        async def fake_stream(messages, model=None, temperature=None):
+            seen["model"] = model
+            yield "ok"
+
+        with patch("backend.routers.chat.LLMService") as MockLLM, \
+             patch("backend.routers.chat._create_memory_service", return_value=mem), \
+             patch("backend.routers.chat._create_graph_service", return_value=graph), \
+             patch("backend.routers.chat.get_default_model", return_value="instance-model"), \
+             patch("backend.routers.chat.ModelService.get_active_model",
+                   new=AsyncMock(return_value={"id": "loaded", "name": "loaded"})), \
+             patch("backend.routers.chat.ModelService.switch_model", new=AsyncMock(return_value=True)) as sw:
+            MockLLM.return_value = MagicMock(stream_chat=fake_stream, last_usage=None)
+            r = client.post(f"/api/chat/conversations/{conv_id}/messages",
+                            json={"content": "hi", "model": model}, cookies={"session_token": token})
+        assert r.status_code == 200, r.text
+        return sw.await_count, seen.get("model")
+
+    def _conv(self, client, token):
+        return client.post("/api/chat/conversations", cookies={"session_token": token}).json()["id"]
+
+    def test_demo_mode_non_admin_cannot_trigger_a_model_switch(self, client, db, sarah, demo_on):
+        _, token = sarah
+        switches, used = self._post(client, token, self._conv(client, token), "attacker-pick")
+        assert switches == 0
+        assert used == "instance-model"
+
+    def test_demo_mode_admin_can_still_switch(self, client, db, admin, demo_on):
+        _, token = admin
+        switches, used = self._post(client, token, self._conv(client, token), "other-model")
+        assert switches == 1
+        assert used == "other-model"
+
+    def test_flag_off_non_admin_behavior_is_unchanged(self, client, db, sarah, monkeypatch):
+        monkeypatch.setattr(settings, "demo_mode", False)
+        _, token = sarah
+        switches, used = self._post(client, token, self._conv(client, token), "other-model")
+        assert switches == 1
+        assert used == "other-model"
