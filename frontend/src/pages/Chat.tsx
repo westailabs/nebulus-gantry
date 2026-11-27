@@ -10,6 +10,7 @@ import { ExportActions } from '../components/ExportActions';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
+import { useHideDevChrome } from '../stores/configStore';
 import { chatApi, dispatchApi } from '../services/api';
 import type { Citation, Message, MessageMeta, Conversation, Persona } from '../types/api';
 
@@ -19,6 +20,8 @@ const OVERLORD_ROUTING_ENABLED = false; // Direct LLM mode for appliance
 export function Chat() {
   const { currentConversationId, updateConversationTitle, createConversation, setModelSwitching } = useChatStore();
   const { sidebarOpen, toggleSidebar, addEvent, clearEvents, events } = useDispatchStore();
+  // CPA demo mode: non-admins never see the Situation Map (Halt All, Daily Budget).
+  const hideDevChrome = useHideDevChrome();
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -289,7 +292,7 @@ export function Chat() {
                   conversationId={currentConversationId}
                   disabled={isSending || isLoading}
                 />
-                {!sidebarOpen && (
+                {!hideDevChrome && !sidebarOpen && (
                   <button
                     onClick={toggleSidebar}
                     className="p-1.5 text-gray-400 hover:text-gray-200 transition-colors rounded"
@@ -340,7 +343,7 @@ export function Chat() {
       </div>
 
       {/* Situation Map sidebar */}
-      {sidebarOpen && <SituationMap />}
+      {!hideDevChrome && sidebarOpen && <SituationMap />}
     </div>
   );
 }
