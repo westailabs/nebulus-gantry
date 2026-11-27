@@ -5,9 +5,11 @@ import { MessageBubble } from './MessageBubble';
 interface MessageListProps {
   messages: Message[];
   isLoading?: boolean;
+  /** Temp id of a streamed answer that is not saved yet (its audit entry does not exist). */
+  unsavedMessageId?: number | null;
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({ messages, isLoading, unsavedMessageId }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -43,7 +45,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
     <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-6">
       <div className="max-w-3xl mx-auto space-y-4">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble key={message.id} message={message} isUnsaved={message.id === unsavedMessageId} />
         ))}
 
         {/* Loading indicator for streaming */}

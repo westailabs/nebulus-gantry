@@ -93,6 +93,12 @@ def is_synthetic_name(name: str) -> bool:
     return bool(SYNTHETIC_NAME.search(name or ""))
 
 
+def would_remove_last_admin(users: list[dict], user_email: str) -> bool:
+    """True if making user_email a plain user would leave the instance with no admin."""
+    admins = [u for u in users if u.get("role") == "admin"]
+    return len(admins) <= 1 and any(u["email"].lower() == user_email.lower() for u in admins)
+
+
 def plan_users(users: list[dict], user_email: str, user_display: str, admin_email: str,
                admin_display: str) -> Plan:
     plan = Plan()
@@ -113,8 +119,6 @@ def plan_users(users: list[dict], user_email: str, user_display: str, admin_emai
             continue
         if (u.get("display_name") or "").strip().lower() in THEATRICAL_ADMIN_NAMES:
             plan.add("update_user", id=u["id"], email=u["email"], display_name=admin_display)
-    if admin_email.lower() == user_email.lower():
-        plan.warnings.append("admin and walkthrough user are the same account; use a separate admin")
     return plan
 
 
@@ -283,6 +287,11 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
     if refusal:
         log("refused: " + refusal)
         return 2
+    if args.admin_email.strip().lower() == args.user_email.strip().lower():
+        # Planning this would demote the admin to a plain user. Fatal in dry run and --apply.
+        log("refused: the admin and the walkthrough user are the same account "
+            f"({args.admin_email}); applying would demote the admin. Use two different accounts.")
+        return 2
     check_path_allowed(args.samples)
     samples = sample_files(args.samples)
     log(f"samples: {len(samples)} SAMPLE_*.txt in {args.samples}")
@@ -304,6 +313,9 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
         return 4
 
     users = _as_list(admin.req("GET", "/api/admin/users"), "users")
+    if would_remove_last_admin(users, args.user_email):
+        log(f"refused: {args.user_email} is the only admin; changing it to a user would leave no admin")
+        return 2
     plan = plan_users(users, args.user_email, args.user_display_name, args.admin_email, args.admin_display_name)
     admin_threads = plan_threads(_as_list(admin.req("GET", "/api/chat/conversations"), "conversations"), "admin")
     plan.actions += admin_threads.actions

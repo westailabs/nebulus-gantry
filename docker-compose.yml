@@ -15,6 +15,9 @@ services:
       - GANTRY_KEYWORD_BOOST_WINDOW=${GANTRY_KEYWORD_BOOST_WINDOW:-0.06}
       - GANTRY_KEYWORD_BOOST_MIN_SCORE=${GANTRY_KEYWORD_BOOST_MIN_SCORE:-0.5}
       - GANTRY_REASONING_PREFILLED=${GANTRY_REASONING_PREFILLED:-false}
+      # CPA demo mode (off by default; see docs/cpa-demo-mode.md)
+      - GANTRY_DEMO_MODE=${GANTRY_DEMO_MODE:-false}
+      - GANTRY_DEMO_FIRM_NAME=${GANTRY_DEMO_FIRM_NAME:-}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000,http://localhost:3001}
       # Reserved signing key (sessions are DB tokens). No key in this file.
       # Unset/blank: the backend generates a random per-install key in

@@ -38,7 +38,7 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
 
 ### Per-answer audit link (CPA demo mode)
 
-With `GANTRY_DEMO_MODE` on, every assistant answer shows a "View audit entry" link. It
+With `GANTRY_DEMO_MODE` on, every saved assistant answer shows a "View audit entry" link. It
 calls `GET /api/chat/messages/{message_id}/audit`, which returns the `chat.query` row whose
 `detail.message_id` matches, but only if the caller wrote that row for a conversation they
 own. Admins get no wider view through this route; the full list and CSV stay under

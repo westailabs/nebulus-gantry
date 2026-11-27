@@ -226,6 +226,25 @@ def test_refuses_when_target_is_not_in_demo_mode(instance, monkeypatch, db_sessi
     assert db_session().query(User).count() == 1
 
 
+@pytest.mark.parametrize("extra", [(), ("--apply",)])
+def test_same_admin_and_walkthrough_email_is_fatal_and_changes_nothing(instance, db_session, extra):
+    argv = _argv(instance, *extra, "--user-email", "ADMIN@gantry-demo.example.com")
+    assert seed.main(argv) == 2
+    assert "would demote the admin" in (instance / "seed.log").read_text()
+    db = db_session()
+    admin = db.query(User).one()
+    assert (admin.role, admin.display_name) == ("admin", "Demo Admin")
+    assert db.query(Conversation).count() == 2
+    assert FakeClient.uploads == []
+
+
+def test_never_demotes_the_last_admin():
+    admins = [{"email": "a@x.example", "role": "admin"}, {"email": "u@x.example", "role": "user"}]
+    assert seed.would_remove_last_admin(admins, "A@x.example") is True
+    assert seed.would_remove_last_admin(admins, "u@x.example") is False
+    assert seed.would_remove_last_admin(admins + [{"email": "b@x.example", "role": "admin"}], "a@x.example") is False
+
+
 def test_refuses_non_loopback_without_yes(instance):
     assert seed.main(_argv(instance)[2:] + ["--url", "http://10.0.0.5:9000"]) == 2
     assert "refused" in (instance / "seed.log").read_text()

@@ -12,15 +12,18 @@ import { extractChartsFromText } from './chartUtils';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Streaming placeholder with a temporary id: it has no saved message or audit entry yet. */
+  isUnsaved?: boolean;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, isUnsaved = false }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [openSource, setOpenSource] = useState<Citation | null>(null);
   const [showAudit, setShowAudit] = useState(false);
   // CPA demo mode: every assistant answer links to its logged chat.query entry.
   const demoMode = useConfigStore((state) => state.demoMode);
-  const showAuditLink = demoMode && !isUser;
+  // Only once the answer is saved: a temp id would 404 at /api/chat/messages/{id}/audit.
+  const showAuditLink = demoMode && !isUser && !isUnsaved;
   const sources = !isUser ? message.sources ?? [] : [];
   const { showTimestamps, showTokenUsage, showGenerationSpeed } = usePreferencesStore();
 

@@ -35,7 +35,7 @@ With the flag off, every item below stays exactly as it is in normal Gantry.
 - **Client Files.** The Knowledge Vault pane is labeled "Client Files" and starts open.
 - **Persona prompt.** The chat system prompt says "Client Files" instead of "Knowledge Vault"
   to match the pane. The stored persona and the flag-off prompt are unchanged.
-- **Audit link.** Each assistant answer has a "View audit entry" link that opens its
+- **Audit link.** Each saved assistant answer has a "View audit entry" link that opens its
   `chat.query` row (your own answers only). See `docs/audit-log-and-citations.md`.
 - **White-label.** The welcome screen shows `GANTRY_DEMO_FIRM_NAME` (if set) above the
   greeting and a small "Powered by West AI Labs" line; the header shows the firm name next
@@ -63,6 +63,10 @@ python scripts/cpa_demo_seed.py --log <path>/cpa_demo_seed.log
 # then make the changes
 python scripts/cpa_demo_seed.py --apply --log <path>/cpa_demo_seed.log
 ```
+
+The admin and the walkthrough user must be different accounts: if `--user-email` is the admin's
+own address the script refuses (dry run and `--apply`) rather than demote the admin, and it never
+changes the last remaining admin to a user.
 
 It makes sure that:
 

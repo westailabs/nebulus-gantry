@@ -47,6 +47,15 @@ describe('MessageBubble audit deep-link (CPA demo mode)', () => {
     expect(dialog).toHaveTextContent('abc123def456');
   });
 
+  it('demo mode: no audit link on an unsaved streaming placeholder, link appears once saved', () => {
+    useConfigStore.setState({ demoMode: true, firmName: '', loaded: true });
+    const placeholder: Message = { ...answer, id: 1764200000001, content: '' };
+    const { rerender } = render(<MessageBubble message={placeholder} isUnsaved />);
+    expect(screen.queryByRole('button', { name: 'View audit entry' })).not.toBeInTheDocument();
+    rerender(<MessageBubble message={answer} isUnsaved={false} />);
+    expect(screen.getByRole('button', { name: 'View audit entry' })).toBeInTheDocument();
+  });
+
   it('demo mode: shows the API error instead of a fake entry', async () => {
     useConfigStore.setState({ demoMode: true, firmName: '', loaded: true });
     vi.mocked(chatApi.getMessageAudit).mockRejectedValue(new Error('No audit entry for this message'));

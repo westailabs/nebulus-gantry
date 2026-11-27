@@ -27,6 +27,8 @@ export function Chat() {
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  // Temp id of the streamed assistant placeholder until it is replaced by the saved message.
+  const [unsavedAssistantId, setUnsavedAssistantId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pendingMessageRef = useRef<{ content: string; model?: string } | null>(null);
 
@@ -112,6 +114,7 @@ export function Chat() {
       };
 
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      setUnsavedAssistantId(tempAssistantMessageId);
 
       try {
         let fullContent = '';
@@ -207,6 +210,7 @@ export function Chat() {
             }
             // Also refresh messages to get proper IDs
             setMessages(data.messages);
+            setUnsavedAssistantId(null);
           } catch {
             // Silently fail on title update - not critical
           }
@@ -215,12 +219,14 @@ export function Chat() {
           try {
             const data = await chatApi.getConversation(currentConversationId);
             setMessages(data.messages);
+            setUnsavedAssistantId(null);
           } catch {
-            // Keep the streamed content if refresh fails
+            // Keep the streamed content if refresh fails (the placeholder stays marked unsaved)
           }
         }
       } catch (err) {
         setError((err as Error).message);
+        setUnsavedAssistantId(null);
         // Remove the placeholder messages on error
         setMessages((prev) =>
           prev.filter(
@@ -327,6 +333,7 @@ export function Chat() {
             {/* Messages */}
             <MessageList
               messages={messages}
+              unsavedMessageId={unsavedAssistantId}
               isLoading={isLoading || (isSending && messages[messages.length - 1]?.content === '')}
             />
 
