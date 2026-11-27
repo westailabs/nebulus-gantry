@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { DemoAdminRoute } from '../DemoAdminRoute';
 import { useAuthStore } from '../../stores/authStore';
 import { useConfigStore } from '../../stores/configStore';
@@ -42,10 +42,48 @@ describe('DemoAdminRoute (/orchestrator)', () => {
     expect(screen.getByText('Orchestrator page')).toBeInTheDocument();
   });
 
-  it('config still loading: a non-admin sees no console flash', () => {
+  it('config still loading: a non-admin sees a loader, not a blank page or the console', () => {
     useConfigStore.setState({ demoMode: false, loaded: false });
     useAuthStore.setState({ user: member, isLoading: false, error: null });
     renderOrchestrator();
+    expect(screen.getByRole('status')).toHaveTextContent('Loading...');
     expect(screen.queryByText('Orchestrator page')).not.toBeInTheDocument();
+    expect(screen.queryByText('Home page')).not.toBeInTheDocument();
+  });
+
+  it('loading then demo mode: the loader gives way to a redirect home', () => {
+    useConfigStore.setState({ demoMode: false, loaded: false });
+    useAuthStore.setState({ user: member, isLoading: false, error: null });
+    renderOrchestrator();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    act(() => useConfigStore.setState({ demoMode: true, loaded: true }));
+    expect(screen.getByText('Home page')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('loading then flag off: the loader gives way to the page, never blank', () => {
+    useConfigStore.setState({ demoMode: false, loaded: false });
+    useAuthStore.setState({ user: member, isLoading: false, error: null });
+    renderOrchestrator();
+    act(() => useConfigStore.setState({ demoMode: false, loaded: true }));
+    expect(screen.getByText('Orchestrator page')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('a failed config fetch ends the loader with the flag off', async () => {
+    const { configApi } = await import('../../services/api');
+    vi.spyOn(configApi, 'get').mockRejectedValue(new Error('down'));
+    useConfigStore.setState({ demoMode: false, loaded: false });
+    useAuthStore.setState({ user: member, isLoading: false, error: null });
+    renderOrchestrator();
+    await act(async () => { await useConfigStore.getState().load(); });
+    expect(screen.getByText('Orchestrator page')).toBeInTheDocument();
+  });
+
+  it('an admin is never held behind the loader', () => {
+    useConfigStore.setState({ demoMode: true, loaded: false });
+    useAuthStore.setState({ user: admin, isLoading: false, error: null });
+    renderOrchestrator();
+    expect(screen.getByText('Orchestrator page')).toBeInTheDocument();
   });
 });
