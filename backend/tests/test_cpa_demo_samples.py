@@ -95,3 +95,39 @@ def test_every_fictional_payer_mention_is_labeled(path):
 def test_new_files_label_the_bakery_as_fictional(name):
     assert "Harbor Lane Bakery LLC, fictional" in (SAMPLES / name).read_text() or \
         "Harbor Lane Bakery LLC (fictional)" in (SAMPLES / name).read_text()
+
+
+def test_engagement_letter_header_says_fictional_not_real():
+    lines = (SAMPLES / "SAMPLE_whitfield_engagement_letter_2025.txt").read_text().splitlines()
+    assert "FICTIONAL / NOT REAL" in lines[0]
+    assert lines[-1] == "END OF SYNTHETIC SAMPLE - FICTIONAL - FOR DEMO ONLY"
+
+
+def _money(text: str, label: str) -> int:
+    m = re.search(re.escape(label) + r"[^$\n]*\$([\d,]+)", text)
+    assert m, f"no {label!r} line"
+    return int(m.group(1).replace(",", ""))
+
+
+def test_whitfield_2025_return_figures_are_internally_consistent():
+    t = (SAMPLES / "SAMPLE_whitfield_2025_form1040_summary.txt").read_text()
+    wages, interest = _money(t, "Line 1z wages"), _money(t, "Line 2b taxable interest")
+    sch_c, total = _money(t, "Schedule C net profit"), _money(t, "Line 9 total income")
+    adj, agi = _money(t, "Line 10 adjustments"), _money(t, "Line 11 adjusted gross income")
+    std, taxable = _money(t, "Line 12 standard deduction"), _money(t, "Line 15 taxable income")
+    assert interest == 212 and agi == 89_214
+    assert std == 31_500  # 2025 MFJ standard deduction (OBBBA; IRS 2025 Form 1040 instructions)
+    assert wages + interest + sch_c == total
+    assert total - adj == agi
+    assert agi - std == taxable
+    one099 = (SAMPLES / "SAMPLE_whitfield_2025_1099_summary.txt").read_text()
+    assert "$212 interest income" in one099
+
+
+def test_whitfield_2024_return_figures_are_internally_consistent():
+    t = (SAMPLES / "SAMPLE_whitfield_2024_form1040_summary.txt").read_text()
+    total = _money(t, "Line 1z wages") + _money(t, "Schedule C net profit")
+    assert total == _money(t, "Line 9 total income")
+    agi = _money(t, "Line 11 adjusted gross income")
+    assert total - _money(t, "Line 10 adjustments") == agi == 79_630
+    assert agi - 29_200 == _money(t, "Line 15 taxable income")  # 2024 MFJ standard deduction

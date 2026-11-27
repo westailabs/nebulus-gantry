@@ -4,6 +4,8 @@ Tax year 2024 Form 1040 summary (as originally filed) prepared by Sample & Co. C
 Filing status: Married filing jointly (spouse: Riley Whitfield).
 Line 1z wages: $39,800
 Schedule C net profit (Harbor Lane Bakery LLC): $44,310
+Line 9 total income: $84,110
+Line 10 adjustments to income (Schedule 1, Part II): $4,480
 Line 11 adjusted gross income (AGI): $79,630
 Line 15 taxable income: $50,430
 Line 24 total tax: $6,515

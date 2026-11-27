@@ -3,9 +3,13 @@ Client: Dana Whitfield (owner, Harbor Lane Bakery LLC)   SSN: 000-00-1234 (fake)
 Tax year 2025 Form 1040 summary prepared by Sample & Co. CPAs, filed 2026-04-09 (e-file accepted).
 Filing status: Married filing jointly (spouse: Riley Whitfield).
 Line 1z wages: $41,500
+Line 2b taxable interest (Form 1099-INT from Sample Credit Union (fictional)): $212
 Schedule C net profit (Harbor Lane Bakery LLC): $52,980
+Line 9 total income: $94,692
+Line 10 adjustments to income (Schedule 1, Part II): $5,478
 Line 11 adjusted gross income (AGI): $89,214
-Line 15 taxable income: $59,814
+Line 12 standard deduction (married filing jointly, 2025): $31,500
+Line 15 taxable income: $57,714
 Line 24 total tax: $7,402
 Line 33 total payments: $8,950
 Line 34 overpaid / refund: $1,548 (direct deposit)
