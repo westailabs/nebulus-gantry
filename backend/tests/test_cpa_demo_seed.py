@@ -77,8 +77,51 @@ def test_plan_users_noop_when_already_seeded():
 
 def test_plan_samples_only_uploads_missing(tmp_path):
     files = [tmp_path / "SAMPLE_a.txt", tmp_path / "SAMPLE_b.txt"]
-    plan = seed.plan_samples(["SAMPLE_a.txt"], files)
+    for f in files:
+        f.write_text(f.name)
+    plan = seed.plan_samples([{"id": 1, "filename": "SAMPLE_a.txt", "file_size": len("SAMPLE_a.txt")}], files)
     assert plan.actions == [{"action": "upload_sample", "filename": "SAMPLE_b.txt"}]
+
+
+def test_plan_samples_replaces_a_same_named_copy_whose_content_differs(tmp_path):
+    # N1: the CP2000 sample was renamed in place; a filename-only match would keep the old copy.
+    new = tmp_path / "SAMPLE_cp2000.txt"
+    new.write_text("payer: Sample Catering Co. (fictional)\n")
+    same = tmp_path / "SAMPLE_same.txt"
+    same.write_text("unchanged\n")
+    existing = [{"id": 7, "filename": "SAMPLE_cp2000.txt", "file_size": len("payer: Old Name Inc.\n")},
+                {"id": 8, "filename": "SAMPLE_same.txt", "file_size": same.stat().st_size}]
+    plan = seed.plan_samples(existing, [new, same])
+    assert plan.actions == [{"action": "replace_sample", "filename": "SAMPLE_cp2000.txt",
+                             "sha256": seed.sample_fingerprint(new)["sha256"], "old_ids": [7]}]
+
+
+def test_plan_samples_prefers_a_server_hash_over_size(tmp_path):
+    f = tmp_path / "SAMPLE_a.txt"
+    f.write_text("abc\n")
+    fp = seed.sample_fingerprint(f)
+    same_size_other_bytes = [{"id": 1, "filename": "SAMPLE_a.txt", "file_size": fp["size"], "sha256": "0" * 64}]
+    assert [a["action"] for a in seed.plan_samples(same_size_other_bytes, [f]).actions] == ["replace_sample"]
+    matching = [{"id": 1, "filename": "SAMPLE_a.txt", "file_size": 999, "sha256": fp["sha256"].upper()}]
+    assert seed.plan_samples(matching, [f]).actions == []
+
+
+def test_plan_samples_keeps_and_warns_when_nothing_to_compare(tmp_path):
+    f = tmp_path / "SAMPLE_a.txt"
+    f.write_text("abc\n")
+    plan = seed.plan_samples([{"id": 1, "filename": "SAMPLE_a.txt"}], [f])
+    assert plan.actions == [] and "cannot compare content" in plan.warnings[0]
+
+
+def test_apply_replaces_a_stale_sample_copy(instance, db_session):
+    assert seed.main(_argv(instance, "--apply")) == 0
+    stale = next(u for u in FakeClient.uploads if u["filename"] == "SAMPLE_whitfield_irs_cp2000_2024.txt")
+    stale["file_size"] += 3  # pretend the instance holds the pre-rename copy
+    assert seed.main(_argv(instance, "--apply")) == 0
+    assert FakeClient.deletes == [stale["id"]]
+    live = [u for u in FakeClient.uploads if u["filename"] == stale["filename"] and not u.get("deleted")]
+    assert len(live) == 1 and live[0]["id"] != stale["id"]
+    assert '"replace_sample"' in (instance / "seed.log").read_text()
 
 
 def test_plan_collections_warns_on_non_synthetic_names():
@@ -130,6 +173,7 @@ class FakeClient(seed.Client):
     """seed.Client over FastAPI's TestClient; uploads are recorded, not indexed."""
 
     uploads: list = []
+    deletes: list = []
     collections: dict = {}
 
     def __init__(self, base):
@@ -154,11 +198,18 @@ class FakeClient(seed.Client):
             return FakeClient.collections[cid]
         if path.startswith("/api/documents?collection_id="):
             cid = int(path.split("=")[1])
-            return [{"filename": u["filename"]} for u in FakeClient.uploads if u["collection_id"] == cid]
+            return [{"id": u["id"], "filename": u["filename"], "file_size": u["file_size"]}
+                    for u in FakeClient.uploads if u["collection_id"] == cid and not u.get("deleted")]
+        if method == "DELETE" and path.startswith("/api/documents/"):
+            doc_id = int(path.rsplit("/", 1)[1])
+            next(u for u in FakeClient.uploads if u["id"] == doc_id)["deleted"] = True
+            FakeClient.deletes.append(doc_id)
+            return {"message": "Document deleted"}
         raise AssertionError(path)
 
     def upload(self, path, collection_id):
-        FakeClient.uploads.append({"filename": path.name, "collection_id": collection_id})
+        FakeClient.uploads.append({"id": len(FakeClient.uploads) + 1, "filename": path.name,
+                                   "collection_id": collection_id, "file_size": len(path.read_bytes())})
         return {"status": "ready"}
 
 
@@ -177,6 +228,7 @@ def instance(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(seed, "Client", FakeClient)
     monkeypatch.setattr(settings, "demo_mode", True)
     FakeClient.uploads = []
+    FakeClient.deletes = []
     FakeClient.collections = {}
     return tmp_path
 

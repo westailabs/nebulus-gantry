@@ -14,7 +14,9 @@ What it does on a GANTRY_DEMO_MODE=true instance:
      just "test" / "debug" (optionally numbered). Other users' threads are never listed
      or touched, and a title that merely contains "test" ("safe-harbor test") is kept.
   4. Ensures the walkthrough user has a "SAMPLE Clients (synthetic)" collection holding
-     every SAMPLE_*.txt synthetic document (uploads only the missing ones).
+     every SAMPLE_*.txt synthetic document: uploads the missing ones, and replaces (deletes,
+     then re-uploads) a same-named document in that collection whose content differs
+     (compared by the server's content hash when it reports one, else by byte size).
   5. Logs a warning for any collection (admin's or walkthrough user's) whose name is not
      obviously synthetic. It never deletes collections.
 
@@ -37,6 +39,7 @@ must never read from, e.g. another checkout).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.cookiejar
 import json
 import os
@@ -130,12 +133,55 @@ def plan_threads(conversations: list[dict], owner: str, patterns=DEFAULT_LEFTOVE
     return plan
 
 
-def plan_samples(existing_filenames: list[str], sample_files: list[Path]) -> Plan:
+def sample_fingerprint(path: Path) -> dict:
+    """Byte size and SHA-256 of a local sample file."""
+    data = path.read_bytes()
+    return {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def _same_content(doc: dict, local: dict) -> bool | None:
+    """Does an uploaded document hold the same bytes as the local file?
+
+    Uses the server's content hash when the API reports one (sha256 / content_sha256);
+    otherwise the stored byte size (file_size), which is all GET /api/documents exposes
+    today. None means the server gave nothing to compare.
+    """
+    remote_hash = doc.get("sha256") or doc.get("content_sha256")
+    if remote_hash:
+        return remote_hash.lower() == local["sha256"]
+    if doc.get("file_size") is not None:
+        return int(doc["file_size"]) == local["size"]
+    return None
+
+
+def plan_samples(existing: list, sample_files: list[Path]) -> Plan:
+    """Upload missing samples; replace a same-named document whose content differs.
+
+    existing: documents already in the SAMPLE collection, as returned by
+    GET /api/documents (dicts with id, filename, file_size; plain filenames are accepted
+    too). Matching by filename alone would keep a stale copy, e.g. an older CP2000 sample
+    whose payer name has since changed.
+    """
     plan = Plan()
-    have = set(existing_filenames)
+    by_name: dict[str, list[dict]] = {}
+    for d in existing:
+        doc = {"filename": d} if isinstance(d, str) else d
+        by_name.setdefault(doc["filename"], []).append(doc)
     for f in sample_files:
-        if f.name not in have:
+        docs = by_name.get(f.name)
+        if not docs:
             plan.add("upload_sample", filename=f.name)
+            continue
+        local = sample_fingerprint(f)
+        verdicts = [_same_content(d, local) for d in docs]
+        if any(v is True for v in verdicts):
+            continue
+        if all(v is None for v in verdicts):
+            plan.warnings.append(f"{f.name}: already uploaded but the server reports no size or hash; "
+                                 "cannot compare content (kept as is)")
+            continue
+        plan.add("replace_sample", filename=f.name, sha256=local["sha256"],
+                 old_ids=[d.get("id") for d in docs])
     return plan
 
 
@@ -339,7 +385,7 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
         cols = _as_list(walk.req("GET", "/api/documents/collections"), "collections")
         plan.warnings += plan_collections(cols, "user").warnings
         col = next((c for c in cols if c.get("name") == SAMPLE_COLLECTION), None)
-        have = [d["filename"] for d in walk.req("GET", f"/api/documents?collection_id={col['id']}")] if col else []
+        have = walk.req("GET", f"/api/documents?collection_id={col['id']}") if col else []
         if col is None:
             plan.add("create_collection", owner="user", name=SAMPLE_COLLECTION)
         plan.actions += plan_samples(have, samples).actions
@@ -371,9 +417,13 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
             (admin if a["owner"] == "admin" else walk).req("DELETE", f"/api/chat/conversations/{a['id']}")
         elif kind == "create_collection":
             col = walk.req("POST", "/api/documents/collections", {"name": SAMPLE_COLLECTION})
-        elif kind == "upload_sample":
+        elif kind in ("upload_sample", "replace_sample"):
             if col is None:
                 raise SystemExit("no SAMPLE collection to upload into")
+            # replace_sample: the walkthrough user's own same-named copy in the SAMPLE
+            # collection has different content; delete it (audited) and upload the current file.
+            for old_id in a.get("old_ids") or []:
+                walk.req("DELETE", f"/api/documents/{int(old_id)}")
             d = walk.upload(args.samples / a["filename"], col["id"])
             a["status"] = d.get("status")
         log("done: " + json.dumps(a, sort_keys=True))
