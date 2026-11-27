@@ -267,15 +267,17 @@ class TestChatCitations:
         assert src[0][0] == {"n": 1, "document_id": 7, "filename": "dana_whitfield_2025_1040.txt",
                              "chunk_index": 0, "similarity": 0.81, "snippet": "AGI line 11: $84,210"}
         done = [d for ev, d in events if ev == "done"][0]
-        assert [s["document_id"] for s in done["sources"]] == [7, 9]
+        # the reply cites only [1], so only source 1 is shown; 2 was retrieved but unused
+        assert [s["document_id"] for s in done["sources"]] == [7]
         # persisted on the assistant message and returned on reload
         detail = client.get(f"/api/chat/conversations/{conv_id}", cookies={"session_token": token}).json()
         asst = [m for m in detail["messages"] if m["role"] == "assistant"][0]
-        assert [s["n"] for s in asst["sources"]] == [1, 2]
-        # audit records the retrieved doc ids
+        assert [s["n"] for s in asst["sources"]] == [1]
+        # audit still records the full retrieval set (and which numbers were cited)
         e = db.query(AuditEvent).filter_by(action="chat.query").one()
         assert json.loads(e.doc_ids) == [7, 9]
         assert json.loads(e.detail)["refused"] is False
+        assert json.loads(e.detail)["retrieved_n"] == [1, 2] and json.loads(e.detail)["cited_n"] == [1]
 
     def test_numbered_sources_in_system_prompt(self, client, db, alice):
         _, token = alice
@@ -297,6 +299,8 @@ class TestChatCitations:
                         cookies={"session_token": token})
         assert "[1] dana_whitfield_2025_1040.txt" in captured["system"]
         assert "cite" in captured["system"].lower()
+        # phantom-citation guard: no [n] when the answer is not in the sources
+        assert "do not write any [n] citation marker" in captured["system"]
 
     def test_refuses_without_sources(self, client, db, alice):
         _, token = alice

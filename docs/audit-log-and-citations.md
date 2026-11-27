@@ -72,6 +72,16 @@ says it is showing the thread's entries.
   `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
   turns the floor off (the app itself now treats a blank value the same way). The demo instance (not started by compose) must set
   `GANTRY_MIN_SOURCE_SIMILARITY=0.42` in its own env.
+- **Only cited sources are shown.** After the reply is generated, the `sources` event, the `done`
+  event's `sources`, and the saved message keep only the citations whose `[n]` (or `[n, m]`) marker
+  appears in the reply text. A reply with no marker, such as a "could not find" answer, shows no
+  source chips (`sources: []`). Original numbering is kept: `[2]` in the text is still source 2, so
+  nothing is renumbered or rewritten; markers with no matching source (out of range, `[0]`) are
+  ignored. The `sources` event now arrives after the text, just before `done`, so inline `[n]`
+  links appear when the answer finishes rather than while it streams. The prompt also tells the
+  model not to write `[n]` when the sources don't contain the answer. The audit row keeps the full
+  retrieval set: `doc_ids` lists every retrieved document, and `detail.retrieved_n` / `detail.cited_n`
+  record which source numbers were retrieved and which the reply cited.
 - Pre-demo check: run `scripts/cpa_demo_smoke.py feature` against the demo instance and expect
   `off-topic in scope ... refused=True`. `calibrate` reads raw similarities from
   `POST /api/documents/search`, which applies no floor, so it still works while the floor is on. Calibrated on 2026-11-22 against the

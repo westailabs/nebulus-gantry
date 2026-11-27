@@ -21,6 +21,7 @@ from backend.services.audit_service import AuditService, client_ip, event_to_dic
 from backend.services.chat_service import ChatService
 from backend.services.document_service import (
     RetrievalError,
+    cited_citations,
     format_sources_context,
     sources_to_citations,
 )
@@ -640,10 +641,8 @@ async def send_message(  # noqa: C901
         error_type = None
         message_id = None
         meta: dict = {}
+        shown: list[dict] = []
         try:
-            if citations:
-                # Structured citations first, so the UI can render clickable sources.
-                yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
             async for chunk in llm.stream_chat(
                 llm_messages, model=llm_model, temperature=persona_temperature
             ):
@@ -666,19 +665,26 @@ async def send_message(  # noqa: C901
             outcome = ("empty_answer" if last_error == "empty_answer" else "llm_error") if llm_failed \
                 else "completed"
 
+            # Only citations whose [n] appears in the final reply go to the client and the saved
+            # message (original numbering kept). A "could not find" answer with no [n] shows no
+            # source chips. The audit row below still records the full retrieval set.
+            shown = [] if llm_failed else cited_citations(full_response, citations)
+            if shown:
+                yield f"event: sources\ndata: {json.dumps(shown)}\n\n"
+
             generation_time_ms = int((time.monotonic() - start_time) * 1000)
             meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
             meta["correlation_id"] = correlation_id
             if rag_scoped:
-                meta["sources"] = [] if llm_failed else citations
+                meta["sources"] = shown
             yield f"event: done\ndata: {json.dumps(meta)}\n\n"
 
             # Save assistant response after streaming completes
             assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
             message_id = assistant_msg.id
-            if citations and not llm_failed:
+            if shown:
                 try:
-                    assistant_msg.sources = json.dumps(citations)
+                    assistant_msg.sources = json.dumps(shown)
                     chat.db.commit()
                 except Exception as e:
                     # Roll back so the session stays usable for the audit row in finally.
@@ -698,6 +704,7 @@ async def send_message(  # noqa: C901
                 detail={"outcome": outcome, "error_type": error_type, "refused": False,
                         "scoped": rag_scoped, "model": llm_model, "correlation_id": correlation_id,
                         "message_id": message_id,
+                        "retrieved_n": [c["n"] for c in citations], "cited_n": [c["n"] for c in shown],
                         "generation_time_ms": int((time.monotonic() - start_time) * 1000),
                         "completion_tokens": meta.get("completion_tokens")},
             )
