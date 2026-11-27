@@ -96,28 +96,25 @@ Passwords come only from files and are never printed. The script never opens the
 database or `.env` files. Set `GANTRY_SEED_FORBIDDEN_ROOTS` (an `os.pathsep`-separated list of
 directories) to make it refuse to read from, say, another checkout on the same host.
 
-### Live redeploy: remove the old CP2000 copy before reseeding
+### Live redeploy: stale sample copies
 
-An instance seeded before the payer rename still holds the old
-`SAMPLE_whitfield_irs_cp2000_2024.txt` (its Reason line names a real-sounding catering
-company instead of "Sample Catering Co. (fictional)"). The seed replaces a stale copy only in
-the walkthrough user's `SAMPLE Clients (synthetic)` collection, so on a live redeploy remove
-every old copy by hand first. Written down for the operator; nothing runs it automatically.
+An instance seeded before the payer rename holds an older `SAMPLE_whitfield_irs_cp2000_2024.txt`
+(its Reason line names a real-sounding catering company instead of "Sample Catering Co.
+(fictional)"); the 2025 Form 1040 summary and the engagement letter also changed.
 
-1. Take the usual pre-redeploy database backup (the redeploy runbook does this).
-2. For each account that owns a SAMPLE collection (the walkthrough user, and the setup admin
-   if earlier smoke runs uploaded samples there), list its documents with
-   `GET /api/documents?collection_id=<id>` while signed in as that account, and note the
-   `id` and `file_size` of `SAMPLE_whitfield_irs_cp2000_2024.txt`.
-3. Compare with `wc -c < scripts/fixtures/cpa_demo_samples/SAMPLE_whitfield_irs_cp2000_2024.txt`
-   from the commit being deployed. A copy whose size differs is the old one. (If you open it
-   in Client Files to check the payer, that view is recorded in the audit log.)
-4. Delete each old copy in Client Files, or with `DELETE /api/documents/<id>` as its owner.
-   Do the same for any other sample whose size differs (the 2025 Form 1040 summary and the
-   engagement letter also changed).
-5. Run the seed dry run. It should plan `upload_sample` (not `replace_sample`) for the CP2000
-   and the other removed files, and nothing for the unchanged ones. Then run `--apply`, and
-   re-run `scripts/cpa_demo_smoke.py calibrate` because the corpus changed.
+- **Walkthrough user's SAMPLE collection: nothing to do by hand.** The seed compares each
+  uploaded document with the repo file (byte size today; a content hash if the API ever reports
+  one) and replaces a same-named copy that differs (`replace_sample`: delete, then upload). Read
+  the dry-run plan first; it should list `replace_sample` for those three files and nothing for
+  the unchanged ones. An edit that keeps the exact byte size would be missed.
+- **Any other account that uploaded samples (the setup admin, earlier smoke runs): do this by
+  hand.** The seed only touches the walkthrough user's collection. Sign in as that account, list
+  `GET /api/documents?collection_id=<id>`, compare each `file_size` with
+  `wc -c < scripts/fixtures/cpa_demo_samples/<file>` from the commit being deployed, and delete
+  the differing copies in Client Files or with `DELETE /api/documents/<id>` (opening a document
+  to check the payer is recorded in the audit log). Written down for the operator; nothing runs
+  it automatically.
+- After reseeding, re-run `scripts/cpa_demo_smoke.py calibrate`, because the corpus changed.
 
 ## Rehearsal
 
