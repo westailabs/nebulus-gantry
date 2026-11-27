@@ -55,8 +55,10 @@ says it is showing the thread's entries.
 ## Citations
 - When a conversation has a document scope, the scope goes into the vector query itself as a Chroma
   `where` clause (collection ids OR document ids), so out-of-scope chunks can't crowd out in-scope ones.
-- Hits below `GANTRY_MIN_SOURCE_SIMILARITY` (default `0`, which turns the floor off) or without a
-  document id are dropped. If nothing is left, the question is refused.
+- Hits below `GANTRY_MIN_SOURCE_SIMILARITY` or without a document id are dropped. Not set at all:
+  the floor is off. Explicit `0`: off, on purpose. Set but blank, or not a number (`0,42`, `abc`,
+  `nan`): the floor falls back to the recommended `0.42` (an invalid value also logs a WARNING),
+  so a typo can't silently turn the floor off. If nothing is left, the question is refused.
   A bounded lexical (BM25-style) boost may be added to the dense similarity before the floor is
   applied, so an exact-term near-miss such as "What was the Whitfield AGI?" (dense 0.3986) can
   clear a 0.42 floor. The floor value itself is not changed. The boost is at most
@@ -66,16 +68,10 @@ says it is showing the thread's entries.
   `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Set `GANTRY_KEYWORD_BOOST=off` to disable.
   The public `/api/documents/search` path is unboosted, so `calibrate` still measures raw
   dense similarity.
-  The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
-  floor off. **Recommended for the CPA demo: `0.40`**, which is committed in `.env.example` and is the
-  `docker-compose.yml` default. Under compose a blank value also gets 0.40, so only an explicit `0`
-  turns the floor off. The demo instance (not started by compose) must set
-  `GANTRY_MIN_SOURCE_SIMILARITY=0.40` in its own env.
-  Calibration (2026-11-26, 7-file SAMPLE corpus, Chroma default embedding): the lowest
-  starter-card match is 0.417 (missing-documents, no boost), the highest generic off-topic
-  question 0.385, so 0.40 sits at the midpoint (the earlier 0.42 refused the missing-documents
-  card). CPA-shaped questions about clients that aren't in the corpus score up to 0.505, above
-  any usable floor; the model's grounded "could not find" answer handles those, not the floor.
+  The value is clamped to [0, 1]. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
+  `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
+  turns the floor off (the app itself now treats a blank value the same way). The demo instance (not started by compose) must set
+  `GANTRY_MIN_SOURCE_SIMILARITY=0.42` in its own env.
 - Pre-demo check: run `scripts/cpa_demo_smoke.py feature` against the demo instance and expect
   `off-topic in scope ... refused=True`. `calibrate` reads raw similarities from
   `POST /api/documents/search`, which applies no floor, so it still works while the floor is on. Calibrated on 2026-11-22 against the

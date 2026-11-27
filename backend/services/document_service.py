@@ -28,23 +28,36 @@ class RetrievalError(Exception):
     """Document search could not run (vector store unavailable or failed)."""
 
 
-def _min_similarity() -> float:
-    """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1]; 0 (the default) turns the floor off.
+# Recommended CPA-demo floor (see .env.example and docs); what a blank or bad value falls back to.
+DEFAULT_MIN_SOURCE_SIMILARITY = 0.42
 
-    The recommended CPA-demo value is 0.40 (see .env.example and docs). Invalid or
-    non-finite values log a WARNING and fall back to 0 (off), never to "refuse all".
+
+def _min_similarity() -> float:
+    """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1], the minimum similarity for a cited source.
+
+    - Variable not set at all: 0, the floor is off (plain Gantry, unchanged).
+    - Set to blank/whitespace, unparseable or non-finite (a typo, an empty compose
+      substitution): the floor is NOT silently dropped. Blank falls back to 0.42; an invalid
+      or non-finite value logs a WARNING and also falls back to 0.42.
+    - Explicit 0 (or any value that clamps to 0, e.g. -0.3): the floor is off, on purpose.
+    - Any other valid number is clamped to [0, 1].
     """
-    raw = (os.getenv("GANTRY_MIN_SOURCE_SIMILARITY") or "").strip()
-    if not raw:
+    raw = os.getenv("GANTRY_MIN_SOURCE_SIMILARITY")
+    if raw is None:
         return 0.0
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     try:
         value = float(raw)
     except ValueError:
-        logger.warning("Invalid GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
-        return 0.0
+        logger.warning("Invalid GANTRY_MIN_SOURCE_SIMILARITY=%r; using the default floor %.2f",
+                       raw, DEFAULT_MIN_SOURCE_SIMILARITY)
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     if not math.isfinite(value):
-        logger.warning("Non-finite GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
-        return 0.0
+        logger.warning("Non-finite GANTRY_MIN_SOURCE_SIMILARITY=%r; using the default floor %.2f",
+                       raw, DEFAULT_MIN_SOURCE_SIMILARITY)
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     return min(max(value, 0.0), 1.0)
 
 
