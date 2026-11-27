@@ -33,6 +33,8 @@ With the flag off, every item below stays exactly as it is in normal Gantry.
 - **Starter cards.** Four questions over Client Files replace the four code cards. The copy
   lives in `frontend/src/demo/cpaStarterCards.json`, which the rehearsal script reads too.
 - **Client Files.** The Knowledge Vault pane is labeled "Client Files" and starts open.
+- **Persona prompt.** The chat system prompt says "Client Files" instead of "Knowledge Vault"
+  to match the pane. The stored persona and the flag-off prompt are unchanged.
 - **Audit link.** Each assistant answer has a "View audit entry" link that opens its
   `chat.query` row (your own answers only). See `docs/audit-log-and-citations.md`.
 - **White-label.** The welcome screen shows `GANTRY_DEMO_FIRM_NAME` (if set) above the

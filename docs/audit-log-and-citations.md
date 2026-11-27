@@ -44,9 +44,13 @@ calls `GET /api/chat/messages/{message_id}/audit`, which returns the `chat.query
 own. Admins get no wider view through this route; the full list and CSV stay under
 `/api/admin/audit`. The response leaves out `ip_address` and keeps only the non-sensitive
 `detail` keys (outcome, refused, scoped, model, correlation_id, message_id, timing). The
-route returns 404 when demo mode is off. Refusals now record their `message_id` too, and the
-refusal `done` event carries `correlation_id` like a normal answer. Rows written before this
-change have no `message_id` on refusals, so those older refusals show "No audit entry".
+route returns 404 when demo mode is off. Audit rows already keep `message_id` in their JSON
+`detail` (no column, no migration), so the link keys on it. Refusals now record their
+`message_id` too, and the refusal `done` event carries `correlation_id` like a normal answer.
+Refusal rows written before that have no `message_id`; for those the link falls back to
+`GET /api/chat/conversations/{id}/audit`, the caller's own `chat.query` rows for that one
+thread (404 for threads they don't own, demo mode only, no `ip_address`), and the viewer
+says it is showing the thread's entries.
 
 ## Citations
 - When a conversation has a document scope, the scope goes into the vector query itself as a Chroma
