@@ -40,3 +40,45 @@ describe('WelcomeScreen starter cards (issue 2)', () => {
     expect(screen.queryByRole('button', { name: 'Year-over-year return changes' })).not.toBeInTheDocument();
   });
 });
+
+// Copy that must never appear in the demo-mode UI until it has been proven live.
+const FORBIDDEN_DEMO_COPY = [
+  /network not required/i,
+  /\boffline\b/i,
+  /on-premises/i,
+  /\bSOC\s?2\b/i,
+  /safeguards/i,
+  /\bHIPAA\b/i,
+  /IRS[- ](compliant|compliance|approved|certified)/i,
+  /compliant with (the )?IRS/i,
+];
+
+describe('WelcomeScreen subtitle and mark (issue 4)', () => {
+  it('flag on: subtitle is exactly "Your data stays on your own hardware", no motorcycle emoji', () => {
+    renderWelcome(true);
+    const subtitle = screen.getByText('Your data stays on your own hardware');
+    expect(subtitle.textContent).toBe('Your data stays on your own hardware');
+    expect(document.body.textContent).not.toContain('Ask me anything');
+    expect(document.body.textContent).not.toContain('🏍');
+    expect(screen.getByTestId('welcome-mark')).toBeInTheDocument();
+  });
+
+  it('flag off: subtitle and emoji unchanged', () => {
+    renderWelcome(false);
+    expect(screen.getByText('Your data stays on this device. Ask me anything.')).toBeInTheDocument();
+    expect(document.body.textContent).toContain('🏍️');
+  });
+
+  it('keeps the time-of-day greeting with the first name', () => {
+    renderWelcome(true);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Good (morning|afternoon|evening), Sarah\.$/);
+  });
+
+  it('flag on: no network/offline/on-premises badge and no SOC 2, Safeguards, HIPAA or IRS-compliance claim', () => {
+    renderWelcome(true, 'Sample & Co. CPAs');
+    const text = document.body.textContent ?? '';
+    for (const pattern of FORBIDDEN_DEMO_COPY) {
+      expect(text).not.toMatch(pattern);
+    }
+  });
+});

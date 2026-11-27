@@ -356,6 +356,9 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
+/** CPA demo welcome line. Exact agreed wording; no offline or compliance claims. */
+const DEMO_WELCOME_SUBTITLE = 'Your data stays on your own hardware';
+
 export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?: string) => void; isSending: boolean }) {
   const user = useAuthStore((state) => state.user);
   const firstName = user?.display_name?.split(' ')[0] || 'there';
@@ -367,13 +370,19 @@ export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string,
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="text-center max-w-2xl w-full">
           <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-cyan-500/30 flex items-center justify-center">
-            <span className="text-3xl">🏍️</span>
+            {demoMode ? (
+              <svg className="h-7 w-7 text-cyan-200" viewBox="0 0 128 128" fill="none" stroke="currentColor" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-testid="welcome-mark">
+                <path d="M24 72H48L62 36L78 92L90 52H108" />
+              </svg>
+            ) : (
+              <span className="text-3xl">🏍️</span>
+            )}
           </div>
           <h2 className="text-xl sm:text-2xl font-semibold text-gray-200 mb-2">
             {getGreeting()}, {firstName}.
           </h2>
           <p className="text-gray-400 text-sm sm:text-base max-w-md mx-auto mb-8">
-            Your data stays on this device. Ask me anything.
+            {demoMode ? DEMO_WELCOME_SUBTITLE : 'Your data stays on this device. Ask me anything.'}
           </p>
 
           {/* Quick-start suggestions */}
