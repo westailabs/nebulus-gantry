@@ -112,7 +112,7 @@ def test_evaluate_card_pass_and_refusal():
 # ── run(): dry run makes no calls; live run gates the exit code ────────────
 
 
-def _args(tmp_path, *, apply=False, url="http://127.0.0.1:8013", yes=False):
+def _args(tmp_path, *, apply=False, url="http://127.0.0.1:9000", yes=False):
     pw = tmp_path / "pw"
     pw.write_text("not-a-real-password-xyz\n")
     return SimpleNamespace(url=url, email="sarah.chen@gantry-demo.example.com", password_file=pw,
@@ -136,7 +136,7 @@ def test_live_refuses_non_loopback_without_yes(tmp_path):
     def boom(*a, **k):
         raise AssertionError("must refuse before connecting")
 
-    assert rh.run(_args(tmp_path, apply=True, url="http://10.1.2.3:8013"), api_factory=boom) == 2
+    assert rh.run(_args(tmp_path, apply=True, url="http://10.1.2.3:9000"), api_factory=boom) == 2
 
 
 GOOD_ANSWERS = {
@@ -213,7 +213,7 @@ def test_live_non_loopback_needs_yes_and_https(tmp_path):
     def boom(*a, **k):
         raise AssertionError("must refuse before connecting")
 
-    assert rh.run(_args(tmp_path, apply=True, url="http://10.1.2.3:8013", yes=True), api_factory=boom) == 2
+    assert rh.run(_args(tmp_path, apply=True, url="http://10.1.2.3:9000", yes=True), api_factory=boom) == 2
     assert "must use https" in (tmp_path / "rehearse.log").read_text()
     assert rh.target_refusal("https://demo.example.org", True) is None
 

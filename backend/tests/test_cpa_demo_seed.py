@@ -96,11 +96,11 @@ def test_checked_in_samples_are_all_synthetic():
 
 
 def test_refuses_files_in_the_other_gantry_checkout(monkeypatch, tmp_path):
-    other = tmp_path / "projects" / "nebulus-gantry"
+    other = tmp_path / "other-checkout"
     other.mkdir(parents=True)
     monkeypatch.setattr(seed, "FORBIDDEN_ROOTS", (other,))
     with pytest.raises(SystemExit):
-        seed.check_path_allowed(other / ".secrets" / "admin_password")
+        seed.check_path_allowed(other / "secrets" / "admin_password")
 
 
 # ── round trip through the real API ─────────────────────────────────────────
@@ -227,13 +227,13 @@ def test_refuses_when_target_is_not_in_demo_mode(instance, monkeypatch, db_sessi
 
 
 def test_refuses_non_loopback_without_yes(instance):
-    assert seed.main(_argv(instance)[2:] + ["--url", "http://10.0.0.5:8013"]) == 2
+    assert seed.main(_argv(instance)[2:] + ["--url", "http://10.0.0.5:9000"]) == 2
     assert "refused" in (instance / "seed.log").read_text()
 
 
 def test_non_loopback_with_yes_still_needs_https(instance):
     argv = _argv(instance)[2:]
-    assert seed.main(argv + ["--url", "http://10.0.0.5:8013", "--yes"]) == 2
+    assert seed.main(argv + ["--url", "http://10.0.0.5:9000", "--yes"]) == 2
     assert "must use https" in (instance / "seed.log").read_text()
     assert seed.target_refusal("https://demo.example.org", True) is None
     assert seed.target_refusal("https://demo.example.org", False) is not None
@@ -251,13 +251,16 @@ def test_url_and_admin_password_file_are_required_not_defaulted(monkeypatch, tmp
     assert ns.user_password_file is None
 
 
+HOST_SPECIFIC = ("80" + "13", "." + "secrets", "." + "nebulus", "nebulus" + "-gantry", "demo/" + "gantry-cpa")
+
+
 def test_no_host_specific_paths_or_ports_are_baked_into_the_scripts():
     for name in ("cpa_demo_seed.py", "cpa_demo_rehearse.py"):
         text = (REPO / "scripts" / name).read_text()
-        for needle in ("8013", ".secrets", ".nebulus", "nebulus-gantry", "/Users/", "/home/", "demo/gantry-cpa"):
+        for needle in ("8013", "secrets", ".nebulus", "nebulus-gantry", "/Users/", "/home/", "demo/gantry-cpa"):
             assert needle not in text, f"{needle!r} in {name}"
     docs = (REPO / "docs" / "cpa-demo-mode.md").read_text()
-    for needle in ("8013", ".secrets", ".nebulus", "nebulus-gantry", "demo/gantry-cpa"):
+    for needle in ("8013", "secrets", ".nebulus", "nebulus-gantry", "demo/gantry-cpa"):
         assert needle not in docs
 
 
