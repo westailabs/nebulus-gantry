@@ -64,6 +64,12 @@ export interface AuditFilters {
   offset?: number;
 }
 
+// Runtime UI config from GET /api/config (instance env; no rebuild needed)
+export interface UIConfig {
+  demo_mode: boolean;
+  demo_firm_name: string;
+}
+
 export interface MessageMeta {
   sources?: Citation[];
   refused?: boolean;

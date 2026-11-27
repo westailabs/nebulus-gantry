@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { useConfigStore } from './stores/configStore';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { ToastContainer } from './components/Toast';
@@ -14,9 +15,11 @@ import { Orchestrator } from './pages/Orchestrator';
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
+  const loadConfig = useConfigStore((state) => state.load);
 
   useEffect(() => {
     checkAuth();
+    loadConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

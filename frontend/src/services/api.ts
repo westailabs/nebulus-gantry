@@ -36,6 +36,7 @@ import type {
   DocumentChunk,
   AuditListResponse,
   AuditFilters,
+  UIConfig,
 } from '../types/api';
 
 export type ChatStreamEvent =
@@ -78,6 +79,11 @@ async function fetchApi<T>(
 
   return response.json();
 }
+
+export const configApi = {
+  /** Public runtime UI switches (CPA demo mode, firm name). */
+  get: () => fetchApi<UIConfig>('/api/config'),
+};
 
 export const authApi = {
   login: (data: LoginRequest) =>
