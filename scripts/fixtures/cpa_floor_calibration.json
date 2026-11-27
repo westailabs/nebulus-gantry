@@ -1,0 +1,79 @@
+{
+ "_comment": "Recorded 2026-11-26 on a throwaway instance (7-file SAMPLE corpus, Chroma default embedding, Gantry 433342c). 'dense' is the raw similarity from POST /api/documents/search for the best chunk of 'file'. backend/tests/test_cpa_floor_calibration.py replays these through the real keyword boost at the committed floor: every starter card must clear it and every 'generic' off-topic query must stay below it. 'cpa_shaped' questions about clients that are not in the corpus can score above any usable floor; the floor does not decide those (the grounded 'could not find' answer does), so they are recorded but not pinned. Re-record with scripts/cpa_demo_smoke.py calibrate after any corpus or embedding change.",
+ "cards": [
+  {
+   "id": "missing-documents",
+   "prompt": "Using our open document requests, which clients are still missing documents, and what is outstanding for each?",
+   "file": "SAMPLE_document_requests_2026-11.txt",
+   "dense": 0.4171
+  },
+  {
+   "id": "irs-notice",
+   "prompt": "What does the IRS CP2000 notice for Dana and Riley Whitfield propose, and when is the response due?",
+   "file": "SAMPLE_whitfield_irs_cp2000_2024.txt",
+   "dense": 0.5514
+  },
+  {
+   "id": "client-1099s",
+   "prompt": "Summarize the 2025 Forms 1099 we have on file for Dana Whitfield and Harbor Lane Bakery LLC.",
+   "file": "SAMPLE_whitfield_2025_1099_summary.txt",
+   "dense": 0.5711
+  },
+  {
+   "id": "yoy-return-changes",
+   "prompt": "How did Dana Whitfield's 2025 Form 1040 change from her 2024 return in AGI, total tax, and refund?",
+   "file": "SAMPLE_whitfield_2025_form1040_summary.txt",
+   "dense": 0.4958
+  }
+ ],
+ "off_topic": [
+  {
+   "query": "What did we file for a client named Zed Quinn?",
+   "kind": "cpa_shaped",
+   "file": "SAMPLE_document_requests_2026-11.txt",
+   "dense": 0.4331
+  },
+  {
+   "query": "What is the capital of France?",
+   "kind": "generic",
+   "file": "SAMPLE_whitfield_engagement_letter_2025.txt",
+   "dense": 0.3337
+  },
+  {
+   "query": "Write a haiku about the ocean.",
+   "kind": "generic",
+   "file": "SAMPLE_whitfield_irs_cp2000_2024.txt",
+   "dense": 0.3229
+  },
+  {
+   "query": "What was Acme Corp's Q3 payroll tax deposit?",
+   "kind": "cpa_shaped",
+   "file": "SAMPLE_whitfield_2024_form1040_summary.txt",
+   "dense": 0.4526
+  },
+  {
+   "query": "Who won the 1998 World Cup?",
+   "kind": "generic",
+   "file": "SAMPLE_whitfield_irs_cp2000_2024.txt",
+   "dense": 0.3515
+  },
+  {
+   "query": "What is the recipe for sourdough bread?",
+   "kind": "generic",
+   "file": "SAMPLE_whitfield_2025_form1040_summary.txt",
+   "dense": 0.3849
+  },
+  {
+   "query": "What is the status of the Pemberton estate's Form 706?",
+   "kind": "cpa_shaped",
+   "file": "SAMPLE_document_requests_2026-11.txt",
+   "dense": 0.4135
+  },
+  {
+   "query": "How much did Northwind LLC pay in 2025 payroll taxes?",
+   "kind": "cpa_shaped",
+   "file": "SAMPLE_whitfield_2025_form1040_summary.txt",
+   "dense": 0.5055
+  }
+ ]
+}

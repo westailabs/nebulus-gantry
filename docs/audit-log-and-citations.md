@@ -65,7 +65,12 @@ says it is showing the thread's entries.
   `GANTRY_KEYWORD_BOOST_MAX` (default `0.05`, capped at `0.10`), only applies when the dense
   score is within `GANTRY_KEYWORD_BOOST_WINDOW` (default `0.06`) of the floor, and only when
   weighted query-term coverage in the chunk (or filename) is at least
-  `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Set `GANTRY_KEYWORD_BOOST=off` to disable.
+  `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Simple English plurals are folded to the singular
+  on both sides ("documents" matches "document"), which is what lifts the "which clients are still
+  missing documents" starter card (dense 0.417, coverage 0.49 -> 0.54) over the 0.42 floor. Set
+  `GANTRY_KEYWORD_BOOST=off` to disable. `backend/tests/test_cpa_floor_calibration.py` pins both sides on
+  recorded scores (`scripts/fixtures/cpa_floor_calibration.json`): every starter card clears 0.42 and
+  every generic off-topic question stays below it.
   The public `/api/documents/search` path is unboosted, so `calibrate` still measures raw
   dense similarity.
   The value is clamped to [0, 1]. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
