@@ -30,6 +30,10 @@ With the flag off, every item below stays exactly as it is in normal Gantry.
   Daily Budget), no model picker (messages go out with no model override, so the
   instance's configured model is used), no Orchestrator tab, and `/orchestrator` redirects
   home. Admins keep all of it for setup.
+- **Model override (always on, not tied to the flag).** The API ignores the `model` field
+  of a chat message from a non-admin, in demo mode and in normal Gantry alike, so only an
+  admin can trigger a server-side model switch. With the flag off a non-admin still sees
+  the model picker, but the instance's configured model answers.
 - **Starter cards.** Four questions over Client Files replace the four code cards. The copy
   lives in `frontend/src/demo/cpaStarterCards.json`, which the rehearsal script reads too.
 - **Client Files.** The Knowledge Vault pane is labeled "Client Files" and starts open.

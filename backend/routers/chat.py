@@ -584,11 +584,11 @@ async def send_message(  # noqa: C901
     except Exception as e:
         logger.warning(f"Failed to load persona: {e}")
 
-    # CPA demo mode: the model picker is hidden for non-admins, and the API enforces it. A
-    # non-admin's model override is ignored (the instance's configured model is used), so
-    # they cannot trigger a server-side model switch. Flag off: unchanged for every role.
+    # Only admins may pick the model per message. A non-admin's model override is ignored
+    # (the instance's configured model is used), so they cannot trigger a server-side model
+    # switch (load/unload) on a shared instance. This holds with or without demo mode.
     requested_model = request.model
-    if settings.demo_mode and getattr(user, "role", None) != "admin":
+    if getattr(user, "role", None) != "admin":
         requested_model = None
 
     # Ensure requested model is loaded (auto-switch if needed)

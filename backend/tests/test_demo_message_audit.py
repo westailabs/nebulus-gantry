@@ -263,7 +263,7 @@ class TestConversationAuditFallback:
 
 
 class TestModelOverrideInDemoMode:
-    """Lookout should-fix: the hidden model picker must be enforced server-side."""
+    """Lookout should-fix: only admins may override the model; enforced server-side, demo on or off."""
 
     def _post(self, client, token, conv_id, model):
         mem = MagicMock()
@@ -306,9 +306,17 @@ class TestModelOverrideInDemoMode:
         assert switches == 1
         assert used == "other-model"
 
-    def test_flag_off_non_admin_behavior_is_unchanged(self, client, db, sarah, monkeypatch):
+    def test_flag_off_non_admin_override_is_still_ignored(self, client, db, sarah, monkeypatch):
+        # Lookout re-review: the block is unconditional, not tied to demo mode.
         monkeypatch.setattr(settings, "demo_mode", False)
         _, token = sarah
+        switches, used = self._post(client, token, self._conv(client, token), "other-model")
+        assert switches == 0
+        assert used == "instance-model"
+
+    def test_flag_off_admin_can_still_switch(self, client, db, admin, monkeypatch):
+        monkeypatch.setattr(settings, "demo_mode", False)
+        _, token = admin
         switches, used = self._post(client, token, self._conv(client, token), "other-model")
         assert switches == 1
         assert used == "other-model"
