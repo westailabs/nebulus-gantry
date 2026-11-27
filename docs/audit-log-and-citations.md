@@ -37,6 +37,7 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
   conversation retention policy. Both are outside this branch.
 
 ### Per-answer audit link (CPA demo mode)
+
 With `GANTRY_DEMO_MODE` on, every assistant answer shows a "View audit entry" link. It
 calls `GET /api/chat/messages/{message_id}/audit`, which returns the `chat.query` row whose
 `detail.message_id` matches, but only if the caller wrote that row for a conversation they
@@ -84,6 +85,7 @@ change have no `message_id` on refusals, so those older refusals show "No audit 
   which is audited as `retrieval_error` and not as a refusal.
 
 ### Run this before every demo
+
 Run `python scripts/cpa_demo_rehearse.py --apply` against the demo instance, logged in as
 the walkthrough user (`GANTRY_SMOKE_EMAIL`, `GANTRY_SMOKE_PASSWORD_FILE`), before every
 demo. It asks every CPA starter card (the same `frontend/src/data/cpaStarterCards.json` the
