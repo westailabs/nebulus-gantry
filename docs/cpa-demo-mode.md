@@ -75,3 +75,8 @@ It makes sure that:
 
 Passwords come only from files and are never printed. The script never opens the Gantry
 database, `.env` files, or anything under `~/projects/nebulus-gantry`.
+
+## Rehearsal
+
+Run `scripts/cpa_demo_rehearse.py --apply` before every demo. See "Run this before every
+demo" in `docs/audit-log-and-citations.md`.

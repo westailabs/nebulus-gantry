@@ -83,6 +83,17 @@ change have no `message_id` on refusals, so those older refusals show "No audit 
   If the vector store is down, the user gets a separate "document search unavailable" message,
   which is audited as `retrieval_error` and not as a refusal.
 
+### Run this before every demo
+Run `python scripts/cpa_demo_rehearse.py --apply` against the demo instance, logged in as
+the walkthrough user (`GANTRY_SMOKE_EMAIL`, `GANTRY_SMOKE_PASSWORD_FILE`), before every
+demo. It asks every CPA starter card (the same `frontend/src/data/cpaStarterCards.json` the
+UI shows) against the `SAMPLE Clients (synthetic)` collection. A card fails unless its answer
+holds the expected facts from `scripts/fixtures/cpa_rehearsal_expected.json`, at least one
+citation comes from the expected `SAMPLE_*` file, and the turn has a `chat.query` audit row
+that the per-answer link can open. The script exits non-zero if any card fails, so don't
+demo until it passes. Without `--apply` it only writes the plan to its log and makes no API
+or LLM calls. Rehearsal threads are deleted afterwards unless you pass `--keep-threads`.
+
 ## Reasoning models
 - `reasoning_content` deltas are ignored. Inline `<think>`, `<thinking>` and `<reasoning>` blocks
   (any case) are stripped even when split across chunks.
