@@ -274,13 +274,16 @@ HOST_SPECIFIC = ("80" + "13", "." + "secrets", "." + "nebulus", "nebulus" + "-ga
 
 
 def test_no_host_specific_paths_or_ports_are_baked_into_the_scripts():
-    for name in ("cpa_demo_seed.py", "cpa_demo_rehearse.py"):
+    for name in ("cpa_demo_seed.py", "cpa_demo_rehearse.py", "cpa_demo_smoke.py"):
         text = (REPO / "scripts" / name).read_text()
         for needle in HOST_SPECIFIC + ("/Us" + "ers/", "/ho" + "me/"):
             assert needle not in text, f"{needle!r} in {name}"
     docs = (REPO / "docs" / "cpa-demo-mode.md").read_text()
     for needle in HOST_SPECIFIC:
         assert needle not in docs
+    vite = (REPO / "frontend" / "vite.config.ts").read_text()
+    for needle in HOST_SPECIFIC:
+        assert needle not in vite, f"{needle!r} in vite.config.ts"
 
 
 def test_log_lines_are_json_parsable_plan_entries(instance):

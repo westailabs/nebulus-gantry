@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     allowedHosts: ['nebulus', 'nebulus.local'],
     proxy: {
-      // Override with GANTRY_API_PROXY (e.g. http://127.0.0.1:8013) for native installs.
+      // Override with GANTRY_API_PROXY (e.g. http://localhost:<backend-port>) for native installs.
       '/api': process.env.GANTRY_API_PROXY || 'http://172.17.0.1:8000',
     },
   },
