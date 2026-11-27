@@ -210,3 +210,53 @@ class TestNonAdminCannotListAudit:
         _, token = sarah
         assert client.get("/api/admin/audit", cookies={"session_token": token}).status_code == 403
         assert client.get("/api/admin/audit/export.csv", cookies={"session_token": token}).status_code == 403
+
+
+class TestConversationAuditFallback:
+    """Thread-level fallback for rows that carry no message_id (older refusals)."""
+
+    def test_message_id_is_stored_in_audit_detail_without_a_schema_change(self, client, db, sarah, demo_on):
+        _, token = sarah
+        conv_id = _scoped_conversation(client, db, token)
+        _send(client, conv_id, token, SOURCES)
+        row = db.query(AuditEvent).filter_by(action="chat.query").one()
+        assert json.loads(row.detail)["message_id"] == _assistant_id(client, conv_id, token)
+        assert "message_id" not in AuditEvent.__table__.columns
+
+    def test_legacy_row_without_message_id_falls_back_to_the_thread_list(self, client, db, sarah, demo_on):
+        _, token = sarah
+        conv_id = _scoped_conversation(client, db, token)
+        _send(client, conv_id, token, [])  # refusal
+        msg_id = _assistant_id(client, conv_id, token)
+        row = db.query(AuditEvent).filter_by(action="chat.query").one()
+        detail = json.loads(row.detail)
+        detail.pop("message_id")
+        row.detail = json.dumps(detail)
+        db.commit()
+        assert client.get(f"/api/chat/messages/{msg_id}/audit", cookies={"session_token": token}).status_code == 404
+        resp = client.get(f"/api/chat/conversations/{conv_id}/audit", cookies={"session_token": token})
+        assert resp.status_code == 200
+        entries = resp.json()["entries"]
+        assert len(entries) == 1 and entries[0]["detail"]["refused"] is True
+        assert "ip_address" not in entries[0]
+
+    def test_thread_list_only_has_this_threads_own_rows(self, client, db, sarah, bob, demo_on):
+        _, s_token = sarah
+        _, b_token = bob
+        c1 = _scoped_conversation(client, db, s_token)
+        c2 = _scoped_conversation(client, db, s_token)
+        _send(client, c1, s_token, SOURCES)
+        _send(client, c2, s_token, SOURCES)
+        entries = client.get(f"/api/chat/conversations/{c1}/audit", cookies={"session_token": s_token}).json()["entries"]
+        assert [e["resource_id"] for e in entries] == [c1]
+        # another user cannot read Sarah's thread; an admin gets no wider view either
+        assert client.get(f"/api/chat/conversations/{c1}/audit", cookies={"session_token": b_token}).status_code == 404
+
+    def test_thread_route_requires_login_and_demo_mode(self, client, db, sarah, monkeypatch):
+        _, token = sarah
+        conv_id = _scoped_conversation(client, db, token)
+        monkeypatch.setattr(settings, "demo_mode", True)
+        assert client.get(f"/api/chat/conversations/{conv_id}/audit").status_code == 401
+        monkeypatch.setattr(settings, "demo_mode", False)
+        assert client.get(f"/api/chat/conversations/{conv_id}/audit",
+                          cookies={"session_token": token}).status_code == 404

@@ -190,7 +190,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
       {openSource && <SourceViewer citation={openSource} onClose={() => setOpenSource(null)} />}
       {showAudit && (
-        <AuditEntryViewer messageId={message.id} sources={sources} onClose={() => setShowAudit(false)} />
+        <AuditEntryViewer messageId={message.id} conversationId={message.conversation_id} sources={sources} onClose={() => setShowAudit(false)} />
       )}
     </div>
   );

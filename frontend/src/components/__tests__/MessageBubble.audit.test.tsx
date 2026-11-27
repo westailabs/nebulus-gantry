@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('../../services/api', () => ({
   documentApi: { getChunk: vi.fn() },
-  chatApi: { getMessageAudit: vi.fn() },
+  chatApi: { getMessageAudit: vi.fn(), getConversationAudit: vi.fn() },
 }));
 
 import { chatApi, documentApi } from '../../services/api';
@@ -50,6 +50,7 @@ describe('MessageBubble audit deep-link (CPA demo mode)', () => {
   it('demo mode: shows the API error instead of a fake entry', async () => {
     useConfigStore.setState({ demoMode: true, firmName: '', loaded: true });
     vi.mocked(chatApi.getMessageAudit).mockRejectedValue(new Error('No audit entry for this message'));
+    vi.mocked(chatApi.getConversationAudit).mockRejectedValue(new Error('down'));
     render(<MessageBubble message={answer} />);
     fireEvent.click(screen.getByRole('button', { name: 'View audit entry' }));
     expect(await screen.findByText('No audit entry for this message')).toBeInTheDocument();
@@ -76,5 +77,38 @@ describe('MessageBubble audit deep-link (CPA demo mode)', () => {
     useConfigStore.setState({ demoMode: false, firmName: '', loaded: true });
     render(<MessageBubble message={answer} />);
     expect(screen.queryByRole('button', { name: 'View audit entry' })).not.toBeInTheDocument();
+  });
+});
+
+describe('MessageBubble audit link: thread fallback', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('falls back to this thread\'s own entries when none is stored for the exact answer', async () => {
+    useConfigStore.setState({ demoMode: true, firmName: '', loaded: true });
+    vi.mocked(chatApi.getMessageAudit).mockRejectedValue(new Error('No audit entry for this message'));
+    vi.mocked(chatApi.getConversationAudit).mockResolvedValue({
+      conversation_id: 5,
+      entries: [{
+        id: 3, timestamp: '2026-11-26T20:00:00+00:00', user_id: 2, user_email: 'sarah.chen@gantry-demo.example.com',
+        action: 'chat.query', resource_type: 'conversation', resource_id: 5, doc_ids: [], query_text: null,
+        detail: { outcome: 'no_match', refused: true, correlation_id: 'old111' },
+      }],
+    });
+    render(<MessageBubble message={answer} />);
+    fireEvent.click(screen.getByRole('button', { name: 'View audit entry' }));
+    expect(chatApi.getConversationAudit).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('dialog', { name: 'Audit entry' });
+    await waitFor(() => expect(dialog).toHaveTextContent("this thread's logged entries are shown instead"));
+    expect(chatApi.getConversationAudit).toHaveBeenCalledWith(5);
+    expect(dialog).toHaveTextContent('no_match (refused)');
+  });
+
+  it('shows the error when neither the message nor the thread has an entry', async () => {
+    useConfigStore.setState({ demoMode: true, firmName: '', loaded: true });
+    vi.mocked(chatApi.getMessageAudit).mockRejectedValue(new Error('No audit entry for this message'));
+    vi.mocked(chatApi.getConversationAudit).mockResolvedValue({ conversation_id: 5, entries: [] });
+    render(<MessageBubble message={answer} />);
+    fireEvent.click(screen.getByRole('button', { name: 'View audit entry' }));
+    expect(await screen.findByText('No audit entry for this message')).toBeInTheDocument();
   });
 });

@@ -385,6 +385,35 @@ _MESSAGE_AUDIT_DETAIL_KEYS = ("outcome", "refused", "scoped", "model", "correlat
                               "retrieval_error", "error_type", "generation_time_ms", "query_chars")
 
 
+def _user_audit_entry(row: AuditEvent, detail: dict) -> dict:
+    entry = event_to_dict(row)
+    entry.pop("ip_address", None)
+    entry["detail"] = {k: detail[k] for k in _MESSAGE_AUDIT_DETAIL_KEYS if k in detail}
+    return entry
+
+
+def _own_chat_query_rows(db: DBSession, user_id: int, conversation_id: int) -> list[tuple[AuditEvent, dict]]:
+    """The caller's own chat.query rows for one conversation, newest first, with parsed detail."""
+    rows = (
+        db.query(AuditEvent)
+        .filter(
+            AuditEvent.action == "chat.query",
+            AuditEvent.user_id == user_id,
+            AuditEvent.resource_type == "conversation",
+            AuditEvent.resource_id == conversation_id,
+        )
+        .order_by(AuditEvent.id.desc())
+        .all()
+    )
+    out = []
+    for row in rows:
+        try:
+            out.append((row, json.loads(row.detail) if row.detail else {}))
+        except ValueError:
+            continue
+    return out
+
+
 @router.get("/messages/{message_id}/audit")
 def get_message_audit_entry(
     message_id: int,
@@ -395,7 +424,10 @@ def get_message_audit_entry(
 
     CPA demo mode only (404 otherwise): lets a non-admin open the logged entry for
     an answer in one click without exposing the admin audit list or CSV export.
-    Only rows the caller wrote for a conversation they own are returned.
+    Audit rows already store ``message_id`` in their JSON ``detail`` (no schema
+    change); only rows the caller wrote for a conversation they own are returned.
+    Rows written before refusals recorded a message id are reachable through
+    ``GET /conversations/{id}/audit`` instead.
     """
     if not settings.demo_mode:
         raise HTTPException(status_code=404, detail="Not found")
@@ -408,28 +440,33 @@ def get_message_audit_entry(
     )
     if msg is None or msg.role != "assistant":
         raise not_found
-    rows = (
-        db.query(AuditEvent)
-        .filter(
-            AuditEvent.action == "chat.query",
-            AuditEvent.user_id == user.id,
-            AuditEvent.resource_type == "conversation",
-            AuditEvent.resource_id == msg.conversation_id,
-        )
-        .order_by(AuditEvent.id.desc())
-        .all()
-    )
-    for row in rows:
-        try:
-            detail = json.loads(row.detail) if row.detail else {}
-        except ValueError:
-            continue
+    for row, detail in _own_chat_query_rows(db, user.id, msg.conversation_id):
         if detail.get("message_id") == message_id:
-            entry = event_to_dict(row)
-            entry.pop("ip_address", None)
-            entry["detail"] = {k: detail[k] for k in _MESSAGE_AUDIT_DETAIL_KEYS if k in detail}
-            return entry
+            return _user_audit_entry(row, detail)
     raise not_found
+
+
+@router.get("/conversations/{conversation_id}/audit")
+def get_conversation_audit_entries(
+    conversation_id: int,
+    user=Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Your own ``chat.query`` audit rows for one of your threads (CPA demo mode only).
+
+    The thread-level fallback for answers whose audit row has no ``message_id``
+    (refusals logged before that was recorded). Never lists other users' rows or
+    other threads, and leaves out ip_address.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+    owned = db.query(Conversation).filter(
+        Conversation.id == conversation_id, Conversation.user_id == user.id
+    ).first()
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    rows = _own_chat_query_rows(db, user.id, conversation_id)
+    return {"conversation_id": conversation_id, "entries": [_user_audit_entry(r, d) for r, d in rows]}
 
 
 @router.post("/conversations/{conversation_id}/messages")

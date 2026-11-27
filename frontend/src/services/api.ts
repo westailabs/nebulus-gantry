@@ -135,6 +135,12 @@ export const chatApi = {
   getMessageAudit: (messageId: number) =>
     fetchApi<MessageAuditEntry>(`/api/chat/messages/${messageId}/audit`),
 
+  /** CPA demo mode fallback: your own chat.query rows for one thread (older rows lack a message id). */
+  getConversationAudit: (conversationId: number) =>
+    fetchApi<{ conversation_id: number; entries: MessageAuditEntry[] }>(
+      `/api/chat/conversations/${conversationId}/audit`
+    ),
+
   pinConversation: (id: number) =>
     fetchApi<Conversation>(`/api/chat/conversations/${id}/pin`, { method: 'PATCH' }),
 

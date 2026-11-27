@@ -4,6 +4,8 @@ import type { Citation, MessageAuditEntry } from '../types/api';
 
 interface AuditEntryViewerProps {
   messageId: number;
+  /** Thread the answer belongs to; used only if no entry is stored for this exact answer. */
+  conversationId?: number;
   /** Citations on the answer, used to show file names next to the logged doc ids. */
   sources?: Citation[];
   onClose: () => void;
@@ -15,9 +17,53 @@ function formatTimestamp(ts: string | null): string {
   return Number.isNaN(d.getTime()) ? ts : d.toLocaleString();
 }
 
+function AuditRows({ entry, docName }: { entry: MessageAuditEntry; docName: (id: number) => string | undefined }) {
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+      <dt className="text-gray-400">Entry</dt>
+      <dd>#{entry.id}</dd>
+      <dt className="text-gray-400">User</dt>
+      <dd>{entry.user_email ?? 'unknown'}</dd>
+      <dt className="text-gray-400">Time</dt>
+      <dd>{formatTimestamp(entry.timestamp)}</dd>
+      <dt className="text-gray-400">Action</dt>
+      <dd className="font-mono text-xs leading-5">{entry.action}</dd>
+      <dt className="text-gray-400">Documents</dt>
+      <dd>
+        {entry.doc_ids.length === 0 ? (
+          'none'
+        ) : (
+          <ul>
+            {entry.doc_ids.map((id) => (
+              <li key={id}>
+                #{id}
+                {docName(id) ? ` · ${docName(id)}` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
+      </dd>
+      {entry.detail.outcome && (
+        <>
+          <dt className="text-gray-400">Outcome</dt>
+          <dd>{entry.detail.refused ? `${entry.detail.outcome} (refused)` : entry.detail.outcome}</dd>
+        </>
+      )}
+      {entry.detail.correlation_id && (
+        <>
+          <dt className="text-gray-400">Correlation</dt>
+          <dd className="font-mono text-xs leading-5">{entry.detail.correlation_id}</dd>
+        </>
+      )}
+    </dl>
+  );
+}
+
 /** Modal with the chat.query audit row behind one of the user's own answers (CPA demo mode). */
-export function AuditEntryViewer({ messageId, sources = [], onClose }: AuditEntryViewerProps) {
+export function AuditEntryViewer({ messageId, conversationId, sources = [], onClose }: AuditEntryViewerProps) {
   const [entry, setEntry] = useState<MessageAuditEntry | null>(null);
+  // Fallback: this thread's own entries, when none is keyed to this exact answer.
+  const [threadEntries, setThreadEntries] = useState<MessageAuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,12 +74,26 @@ export function AuditEntryViewer({ messageId, sources = [], onClose }: AuditEntr
         if (!cancelled) setEntry(e);
       })
       .catch((e: Error) => {
-        if (!cancelled) setError(e.message || 'Could not load the audit entry');
+        if (cancelled) return;
+        if (conversationId == null) {
+          setError(e.message || 'Could not load the audit entry');
+          return;
+        }
+        chatApi
+          .getConversationAudit(conversationId)
+          .then((t) => {
+            if (cancelled) return;
+            if (t.entries.length > 0) setThreadEntries(t.entries);
+            else setError(e.message || 'Could not load the audit entry');
+          })
+          .catch(() => {
+            if (!cancelled) setError(e.message || 'Could not load the audit entry');
+          });
       });
     return () => {
       cancelled = true;
     };
-  }, [messageId]);
+  }, [messageId, conversationId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -66,46 +126,18 @@ export function AuditEntryViewer({ messageId, sources = [], onClose }: AuditEntr
         </div>
         <div className="overflow-y-auto px-4 py-3 text-sm text-gray-200">
           {error && <p className="text-red-400">{error}</p>}
-          {!error && !entry && <p className="text-gray-400">Loading audit entry…</p>}
-          {entry && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-              <dt className="text-gray-400">Entry</dt>
-              <dd>#{entry.id}</dd>
-              <dt className="text-gray-400">User</dt>
-              <dd>{entry.user_email ?? 'unknown'}</dd>
-              <dt className="text-gray-400">Time</dt>
-              <dd>{formatTimestamp(entry.timestamp)}</dd>
-              <dt className="text-gray-400">Action</dt>
-              <dd className="font-mono text-xs leading-5">{entry.action}</dd>
-              <dt className="text-gray-400">Documents</dt>
-              <dd>
-                {entry.doc_ids.length === 0 ? (
-                  'none'
-                ) : (
-                  <ul>
-                    {entry.doc_ids.map((id) => (
-                      <li key={id}>
-                        #{id}
-                        {docName(id) ? ` · ${docName(id)}` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </dd>
-              {entry.detail.outcome && (
-                <>
-                  <dt className="text-gray-400">Outcome</dt>
-                  <dd>{entry.detail.refused ? `${entry.detail.outcome} (refused)` : entry.detail.outcome}</dd>
-                </>
-              )}
-              {entry.detail.correlation_id && (
-                <>
-                  <dt className="text-gray-400">Correlation</dt>
-                  <dd className="font-mono text-xs leading-5">{entry.detail.correlation_id}</dd>
-                </>
-              )}
-            </dl>
+          {!error && !entry && !threadEntries && <p className="text-gray-400">Loading audit entry…</p>}
+          {threadEntries && (
+            <p className="mb-3 text-xs text-gray-400">
+              No entry is stored for this exact answer, so this thread's logged entries are shown instead.
+            </p>
           )}
+          {entry && <AuditRows entry={entry} docName={docName} />}
+          {threadEntries?.map((t) => (
+            <div key={t.id} className="mb-3 border-t border-gray-700 pt-3 first:border-t-0 first:pt-0">
+              <AuditRows entry={t} docName={docName} />
+            </div>
+          ))}
         </div>
       </div>
     </div>
