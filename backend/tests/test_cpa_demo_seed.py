@@ -228,3 +228,23 @@ def test_log_lines_are_json_parsable_plan_entries(instance):
     plans = [json.loads(line.split("plan: ", 1)[1]) for line in (instance / "seed.log").read_text().splitlines()
              if " plan: " in line]
     assert {p["action"] for p in plans} >= {"create_user", "update_user", "delete_thread", "upload_sample"}
+
+
+def test_default_firm_name_is_sample_and_co_cpas():
+    assert seed.DEFAULT_FIRM_NAME == "Sample & Co. CPAs"
+    env_example = (REPO / ".env.example").read_text()
+    assert 'GANTRY_DEMO_FIRM_NAME="Sample & Co. CPAs"' in env_example
+
+
+def test_seed_warns_when_the_instance_firm_name_differs_and_does_not_change_it(instance, monkeypatch):
+    monkeypatch.setattr(settings, "demo_firm_name", "")
+    assert seed.main(_argv(instance)) == 0
+    assert "warn: instance firm name is ''" in (instance / "seed.log").read_text()
+    assert settings.demo_firm_name == ""
+
+
+def test_seed_reports_ok_when_the_firm_name_matches(instance, monkeypatch):
+    monkeypatch.setattr(settings, "demo_firm_name", "Sample & Co. CPAs")
+    assert seed.main(_argv(instance)) == 0
+    log = (instance / "seed.log").read_text()
+    assert "firm name ok: 'Sample & Co. CPAs'" in log and "warn: instance firm name" not in log

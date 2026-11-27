@@ -50,6 +50,7 @@ DEFAULT_ADMIN_EMAIL = "admin@gantry-demo.example.com"
 DEFAULT_USER_EMAIL = "sarah.chen@gantry-demo.example.com"
 DEFAULT_USER_DISPLAY = "Sarah Chen, CPA"
 DEFAULT_ADMIN_DISPLAY = "Setup Admin"
+DEFAULT_FIRM_NAME = "Sample & Co. CPAs"
 SAMPLE_COLLECTION = "SAMPLE Clients (synthetic)"
 THEATRICAL_ADMIN_NAMES = ("demo admin",)
 # Titles of leftover engineering/test threads. Matched case-insensitively as words.
@@ -230,6 +231,8 @@ def parse_args(argv=None):
     p.add_argument("--user-password-file", type=Path, default=Path(os.getenv(
         "GANTRY_DEMO_USER_PASSWORD_FILE", str(Path.home() / "demo/gantry-cpa/.secrets/demo_user_password"))))
     p.add_argument("--admin-display-name", default=DEFAULT_ADMIN_DISPLAY)
+    p.add_argument("--firm-name", default=DEFAULT_FIRM_NAME,
+                   help="firm name GANTRY_DEMO_FIRM_NAME should show on the instance (checked, never set)")
     p.add_argument("--samples", type=Path, default=DEFAULT_SAMPLES)
     p.add_argument("--log", type=Path, default=Path(os.getenv("GANTRY_DEMO_SEED_LOG", "cpa_demo_seed.log")))
     p.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
@@ -253,6 +256,12 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
     if not (cfg or {}).get("demo_mode"):
         log("refused: target does not report demo_mode=true at /api/config; not a demo-mode instance")
         return 3
+    firm = (cfg or {}).get("demo_firm_name", "")
+    if firm != args.firm_name:
+        log(f"warn: instance firm name is {firm!r}, expected {args.firm_name!r}; set GANTRY_DEMO_FIRM_NAME "
+            "in the instance env (this script does not change instance config)")
+    else:
+        log(f"firm name ok: {firm!r}")
     me = admin.login(args.admin_email, read_secret(args.admin_password_file, "admin"))
     if me.get("role") != "admin":
         log(f"refused: {args.admin_email} is not an admin")

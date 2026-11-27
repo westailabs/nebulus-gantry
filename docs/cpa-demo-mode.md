@@ -9,7 +9,7 @@ the UI shows.
 | Variable | Default | Effect |
 |---|---|---|
 | `GANTRY_DEMO_MODE` | off | `true`, `1` or `yes` (any case) turns on the CPA demo profile. Anything else, or unset, leaves Gantry unchanged. |
-| `GANTRY_DEMO_FIRM_NAME` | empty | Fictional firm name for the demo welcome screen and header. Empty shows no firm name. Never use a real firm or client. |
+| `GANTRY_DEMO_FIRM_NAME` | empty | Fictional firm name for the demo welcome screen and header. Empty shows no firm name. Never use a real firm or client. The demo uses `Sample & Co. CPAs` (quote it in an env file). |
 
 Both are read from the backend's environment at startup and served, read-only and without
 authentication, by `GET /api/config`:
