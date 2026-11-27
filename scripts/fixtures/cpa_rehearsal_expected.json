@@ -11,7 +11,7 @@
       "sources": ["SAMPLE_whitfield_irs_cp2000_2024.txt"]
     },
     "client-1099s": {
-      "facts": [["Lakeview Catering"], ["$4,100", "4,100"], ["$38,640", "38,640"]],
+      "facts": [["Sample Catering Co"], ["$4,100", "4,100"], ["$38,640", "38,640"]],
       "sources": ["SAMPLE_whitfield_2025_1099_summary.txt"]
     },
     "yoy-return-changes": {

@@ -72,9 +72,9 @@ def test_fact_matching_cp2000(answer, ok):
 
 
 def test_fact_matching_ignores_case_and_whitespace():
-    facts = [["Lakeview Catering"], ["$4,100", "4,100"]]
-    assert rh.missing_facts("LAKEVIEW\u00a0catering Inc. paid 4,100.", facts) == []
-    assert rh.missing_facts("Lakeview Catering paid $14,100.", facts) == [["$4,100", "4,100"]]
+    facts = [["Sample Catering Co"], ["$4,100", "4,100"]]
+    assert rh.missing_facts("SAMPLE\u00a0catering co. paid 4,100.", facts) == []
+    assert rh.missing_facts("Sample Catering Co. paid $14,100.", facts) == [["$4,100", "4,100"]]
 
 
 def test_citation_rules():
@@ -142,7 +142,7 @@ def test_live_refuses_non_loopback_without_yes(tmp_path):
 GOOD_ANSWERS = {
     "missing-documents": ("Whitfield, Okafor and Vega have open requests [1].", "SAMPLE_document_requests_2026-11.txt"),
     "irs-notice": ("It proposes $765 in total, due 2026-10-02 [1].", "SAMPLE_whitfield_irs_cp2000_2024.txt"),
-    "client-1099s": ("Lakeview Catering $4,100; Tidewater $38,640 [1].", "SAMPLE_whitfield_2025_1099_summary.txt"),
+    "client-1099s": ("Sample Catering Co. $4,100; Example Card Payments Co. $38,640 [1].", "SAMPLE_whitfield_2025_1099_summary.txt"),
     "yoy-return-changes": ("AGI rose from $79,630 to $89,214 [1].", "SAMPLE_whitfield_2025_form1040_summary.txt"),
 }
 
