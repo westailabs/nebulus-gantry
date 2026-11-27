@@ -50,16 +50,18 @@ With the flag off, every item below stays exactly as it is in normal Gantry.
 `scripts/cpa_demo_seed.py` resets an instance for the walkthrough. It is re-runnable, a dry
 run by default, and logs every step (default `cpa_demo_seed.log`, or `--log`). It talks only
 to the instance API, so its changes are audited. It refuses to write unless
-`GET /api/config` reports `demo_mode: true`, and refuses non-loopback targets without
-`--yes`.
+`GET /api/config` reports `demo_mode: true`, and refuses a non-loopback target unless
+`--yes` is given and the URL is https.
 
 ```bash
+# placeholders: use your instance's backend URL and your own password files
+export GANTRY_SMOKE_URL=http://127.0.0.1:<backend-port>
+export GANTRY_SMOKE_PASSWORD_FILE=<file holding the admin password>
+export GANTRY_DEMO_USER_PASSWORD_FILE=<file holding the walkthrough user's password>
 # plan only (reads, no writes)
-GANTRY_SMOKE_PASSWORD_FILE=~/demo/gantry-cpa/.secrets/admin_password \
-GANTRY_DEMO_USER_PASSWORD_FILE=~/demo/gantry-cpa/.secrets/demo_user_password \
-  python scripts/cpa_demo_seed.py --log ~/.nebulus/logs/gantry-cpa-seed.log
+python scripts/cpa_demo_seed.py --log <path>/cpa_demo_seed.log
 # then make the changes
-python scripts/cpa_demo_seed.py --apply --log ~/.nebulus/logs/gantry-cpa-seed.log
+python scripts/cpa_demo_seed.py --apply --log <path>/cpa_demo_seed.log
 ```
 
 It makes sure that:
@@ -69,16 +71,18 @@ It makes sure that:
    they differ.
 2. No account is shown as "Demo Admin". The setup admin is renamed "Setup Admin" and stays
    an admin for setup only; don't use it for the walkthrough.
-3. Leftover threads owned by the admin or by the walkthrough user are deleted when a title
-   contains the whole word moto, test (also tests, testing), smoke, probe or debug. Whole words
-   only: "Attestation prep" and "Contest notes" are kept. The dry run lists each thread it
+3. Leftover threads owned by the admin or by the walkthrough user are deleted only when the
+   title starts with `Moto`, `Smoke` or `Probe`, or is just `test`, `tests`, `testing` or
+   `debug` (optionally numbered). A title that merely contains the word ("Safe-harbor test",
+   "Attestation prep", "Contest notes") is kept. The dry run lists each thread it
    would delete (owner, id, title) in the log. Other users' threads are never touched.
 4. The walkthrough user has a `SAMPLE Clients (synthetic)` collection with every
    `scripts/fixtures/cpa_demo_samples/SAMPLE_*.txt` file. Only missing files are uploaded.
 5. Any collection whose name doesn't read as synthetic is reported, never deleted.
 
 Passwords come only from files and are never printed. The script never opens the Gantry
-database, `.env` files, or anything under `~/projects/nebulus-gantry`.
+database or `.env` files. Set `GANTRY_SEED_FORBIDDEN_ROOTS` (an `os.pathsep`-separated list of
+directories) to make it refuse to read from, say, another checkout on the same host.
 
 ## Rehearsal
 

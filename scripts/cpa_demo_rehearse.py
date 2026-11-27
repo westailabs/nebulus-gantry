@@ -14,10 +14,11 @@ citation comes from an expected SAMPLE_* file of the corpus, and (3) a chat.quer
 row exists for the turn: through the per-answer deep-link (demo mode), else, for an admin
 login, through the admin audit list by correlation id. Latency is logged, never gated.
 
-Config (env, same convention as cpa_demo_smoke.py): GANTRY_SMOKE_URL (default
-http://127.0.0.1:8013), GANTRY_SMOKE_EMAIL, GANTRY_SMOKE_PASSWORD_FILE (password is read
-from this file only and never printed), GANTRY_REHEARSE_LOG (default cpa_demo_rehearse.log).
-Use the walkthrough user's login to rehearse exactly what the buyer will see.
+Config (flags or env, same names as cpa_demo_smoke.py): GANTRY_SMOKE_URL (backend base URL,
+required for --apply), GANTRY_SMOKE_EMAIL, GANTRY_SMOKE_PASSWORD_FILE (the password is read
+from this file only and never printed; required for --apply), GANTRY_REHEARSE_LOG (default
+cpa_demo_rehearse.log). A non-loopback target needs --yes and https. Use the walkthrough
+user's login to rehearse exactly what the buyer will see.
 """
 from __future__ import annotations
 
@@ -128,6 +129,17 @@ def is_loopback(url: str) -> bool:
     return (urllib.parse.urlparse(url).hostname or "") in ("localhost", "127.0.0.1", "::1")
 
 
+def target_refusal(url: str, yes: bool) -> str | None:
+    """Why this target must be refused, or None. Non-loopback needs --yes and https."""
+    if is_loopback(url):
+        return None
+    if not yes:
+        return "target is not loopback; re-run with --yes if that is intended"
+    if urllib.parse.urlparse(url).scheme != "https":
+        return "a non-loopback target must use https; refusing to send a password over plain http"
+    return None
+
+
 # ── Live API access (reuses cpa_demo_smoke's helpers) ───────────────────────
 
 
@@ -207,10 +219,12 @@ class Log:
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Rehearse every CPA demo starter card.")
-    p.add_argument("--url", default=os.getenv("GANTRY_SMOKE_URL", "http://127.0.0.1:8013"))
+    p.add_argument("--url", default=os.getenv("GANTRY_SMOKE_URL", ""),
+                   help="backend base URL (or env GANTRY_SMOKE_URL); required with --apply")
     p.add_argument("--email", default=os.getenv("GANTRY_SMOKE_EMAIL", "sarah.chen@gantry-demo.example.com"))
-    p.add_argument("--password-file", type=Path, default=Path(os.getenv(
-        "GANTRY_SMOKE_PASSWORD_FILE", str(Path.home() / "demo/gantry-cpa/.secrets/demo_user_password"))))
+    p.add_argument("--password-file", type=Path,
+                   default=Path(os.environ["GANTRY_SMOKE_PASSWORD_FILE"]) if os.getenv("GANTRY_SMOKE_PASSWORD_FILE") else None,
+                   help="file holding the login password (or env GANTRY_SMOKE_PASSWORD_FILE); required with --apply")
     p.add_argument("--log", type=Path, default=Path(os.getenv("GANTRY_REHEARSE_LOG", "cpa_demo_rehearse.log")))
     p.add_argument("--apply", action="store_true", help="live run against the instance (default: dry run)")
     p.add_argument("--yes", action="store_true", help="allow a non-loopback target")
@@ -227,7 +241,7 @@ def run(args, api_factory=Api) -> int:  # noqa: C901 -- linear script flow
     if missing:
         log(f"fixture has no expected facts for card(s) {missing}")
         return 2
-    log(f"cpa_demo_rehearse {'LIVE' if args.apply else 'DRY-RUN'} target={args.url} user={args.email} "
+    log(f"cpa_demo_rehearse {'LIVE' if args.apply else 'DRY-RUN'} target={args.url or '(unset)'} user={args.email} "
         f"collection={expected['collection']!r} cards={len(cards)}")
     for c in cards:
         exp = expected["cards"][c["id"]]
@@ -236,8 +250,13 @@ def run(args, api_factory=Api) -> int:  # noqa: C901 -- linear script flow
     if not args.apply:
         log("dry run: no API or LLM calls made. Re-run with --apply for the live rehearsal.")
         return 0
-    if not is_loopback(args.url) and not args.yes:
-        log("refused: target is not loopback; re-run with --yes if that is intended")
+    if not args.url or not args.password_file:
+        log("refused: --url (GANTRY_SMOKE_URL) and --password-file (GANTRY_SMOKE_PASSWORD_FILE) are required "
+            "for --apply")
+        return 2
+    refusal = target_refusal(args.url, args.yes)
+    if refusal:
+        log("refused: " + refusal)
         return 2
 
     api = api_factory(args.url)

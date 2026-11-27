@@ -7,7 +7,7 @@ the walkthrough user).
 
 - The first four (`okafor_2025_form1040_summary`, `whitfield_2025_form1040_summary`,
   `whitfield_engagement_letter_2025`, `whitfield_irs_cp2000_2024`) are the corpus the demo
-  instance already used (`~/demo/gantry-cpa-samples`). Three are byte-identical to it. The
+  instance already used (the demo's original sample directory). Three are byte-identical to it. The
   CP2000 differs in one name: payer "Lakeview Catering Inc." became "Sample Catering Co.",
   because a real-sounding business name has no place in a synthetic file.
 - Three were added so every CPA starter card has a document to cite:

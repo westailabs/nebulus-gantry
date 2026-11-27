@@ -9,23 +9,30 @@ What it does on a GANTRY_DEMO_MODE=true instance:
      (creates the account if missing; fixes display name / role if not).
   2. Renames any account shown as "Demo Admin" to a plain setup name ("Setup Admin");
      the admin account itself stays for setup.
-  3. Deletes leftover test threads ("Moto test", "smoke", "probe", ...) owned by the admin
-     and by the walkthrough user. Threads of other users are only reported.
+  3. Deletes leftover test threads owned by the admin and by the walkthrough user whose
+     title starts with a known leftover prefix ("Moto ...", "Smoke ...", "Probe ...") or is
+     just "test" / "debug" (optionally numbered). Other users' threads are never listed
+     or touched, and a title that merely contains "test" ("safe-harbor test") is kept.
   4. Ensures the walkthrough user has a "SAMPLE Clients (synthetic)" collection holding
      every SAMPLE_*.txt synthetic document (uploads only the missing ones).
-  5. Reports any collection whose name is not obviously synthetic (never deletes them).
+  5. Logs a warning for any collection (admin's or walkthrough user's) whose name is not
+     obviously synthetic. It never deletes collections.
 
 All changes go through the instance's own API, so they are audited like any admin action.
 It refuses to write unless GET /api/config reports demo_mode=true on the target, and
-refuses non-loopback targets without --yes. It never opens the Gantry database, .env
-files, or anything under ~/projects/nebulus-gantry.
+refuses non-loopback targets unless --yes is given and the URL is https. It never opens the
+Gantry database or .env files; it reads only the sample files and the two password files.
 
-Usage:
-  python scripts/cpa_demo_seed.py                 # dry run against http://127.0.0.1:8013
+Usage (placeholders; nothing here is host-specific):
+  export GANTRY_SMOKE_URL=http://127.0.0.1:<backend-port>
+  export GANTRY_SMOKE_PASSWORD_FILE=<file holding the admin password>
+  export GANTRY_DEMO_USER_PASSWORD_FILE=<file holding the walkthrough user's password>
+  python scripts/cpa_demo_seed.py                 # dry run: plans, logs, changes nothing
   python scripts/cpa_demo_seed.py --apply         # make the changes
-Config (flags or env): GANTRY_SMOKE_URL, GANTRY_SMOKE_EMAIL, GANTRY_SMOKE_PASSWORD_FILE
+Config (flags or env): GANTRY_SMOKE_URL, GANTRY_SMOKE_EMAIL (admin), GANTRY_SMOKE_PASSWORD_FILE
 (admin), GANTRY_DEMO_USER_EMAIL, GANTRY_DEMO_USER_PASSWORD_FILE (walkthrough user),
-GANTRY_DEMO_SEED_LOG.
+GANTRY_DEMO_SEED_LOG, GANTRY_SEED_FORBIDDEN_ROOTS (os.pathsep-separated directories this script
+must never read from, e.g. another checkout).
 """
 from __future__ import annotations
 
@@ -45,7 +52,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SAMPLES = REPO_ROOT / "scripts" / "fixtures" / "cpa_demo_samples"
-DEFAULT_URL = "http://127.0.0.1:8013"
 DEFAULT_ADMIN_EMAIL = "admin@gantry-demo.example.com"
 DEFAULT_USER_EMAIL = "sarah.chen@gantry-demo.example.com"
 DEFAULT_USER_DISPLAY = "Sarah Chen, CPA"
@@ -53,12 +59,18 @@ DEFAULT_ADMIN_DISPLAY = "Setup Admin"
 DEFAULT_FIRM_NAME = "Sample & Co. CPAs"
 SAMPLE_COLLECTION = "SAMPLE Clients (synthetic)"
 THEATRICAL_ADMIN_NAMES = ("demo admin",)
-# Titles of leftover engineering/test threads. Whole words only (\b on both sides), so
-# "test" matches "Moto test" and "Testing" but never "attestation" or "contest".
-DEFAULT_LEFTOVER_PATTERNS = (r"\bmoto\b", r"\btest(s|ing)?\b", r"\bsmoke\b", r"\bprobe\b", r"\bdebug\b")
+# Leftover engineering/test threads, anchored to the START of the title: known prefixes
+# ("Moto test", "Smoke run", "Probe 2"), or a title that is only test/tests/testing/debug
+# with an optional number. A bare word elsewhere never matches, so "safe-harbor test",
+# "Attestation prep" and "Contest notes" are kept.
+DEFAULT_LEFTOVER_PATTERNS = (
+    r"^\s*(moto|smoke|probe)\b",
+    r"^\s*(tests?|testing|debug)(\s+\d+)?\s*$",
+)
 SYNTHETIC_NAME = re.compile(r"\b(sample|synthetic)\b", re.IGNORECASE)
-# The other Gantry checkout on the demo box must never be a source of files for this script.
-FORBIDDEN_ROOTS = (Path.home() / "projects" / "nebulus-gantry",)
+# Directories this script must never read from (e.g. another checkout on the same host).
+# Set GANTRY_SEED_FORBIDDEN_ROOTS to an os.pathsep-separated list; empty by default.
+FORBIDDEN_ROOTS = tuple(Path(p) for p in os.getenv("GANTRY_SEED_FORBIDDEN_ROOTS", "").split(os.pathsep) if p)
 
 
 # ── Pure planning helpers (unit-tested without a server) ───────────────────
@@ -144,6 +156,17 @@ def is_loopback(url: str) -> bool:
     return (urllib.parse.urlparse(url).hostname or "") in ("localhost", "127.0.0.1", "::1")
 
 
+def target_refusal(url: str, yes: bool) -> str | None:
+    """Why this target must be refused, or None. Non-loopback needs --yes and https."""
+    if is_loopback(url):
+        return None
+    if not yes:
+        return "target is not loopback; re-run with --yes if that is intended"
+    if urllib.parse.urlparse(url).scheme != "https":
+        return "a non-loopback target must use https; refusing to send passwords over plain http"
+    return None
+
+
 def check_path_allowed(path: Path) -> None:
     resolved = path.expanduser().resolve()
     for root in FORBIDDEN_ROOTS:
@@ -151,7 +174,7 @@ def check_path_allowed(path: Path) -> None:
             resolved.relative_to(root.resolve())
         except ValueError:
             continue
-        raise SystemExit(f"refusing to read {path}: it is inside {root}, the other Gantry checkout")
+        raise SystemExit(f"refusing to read {path}: it is inside the forbidden root {root}")
 
 
 def read_secret(path: Path, what: str) -> str:
@@ -221,16 +244,22 @@ class Log:
             fh.write(line + "\n")
 
 
+def _env_path(name: str) -> Path | None:
+    value = os.getenv(name)
+    return Path(value) if value else None
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    p.add_argument("--url", default=os.getenv("GANTRY_SMOKE_URL", DEFAULT_URL))
+    p.add_argument("--url", default=os.getenv("GANTRY_SMOKE_URL"),
+                   help="backend base URL (or env GANTRY_SMOKE_URL); required")
     p.add_argument("--admin-email", default=os.getenv("GANTRY_SMOKE_EMAIL", DEFAULT_ADMIN_EMAIL))
-    p.add_argument("--admin-password-file", type=Path, default=Path(os.getenv(
-        "GANTRY_SMOKE_PASSWORD_FILE", str(Path.home() / "demo/gantry-cpa/.secrets/admin_password"))))
+    p.add_argument("--admin-password-file", type=Path, default=_env_path("GANTRY_SMOKE_PASSWORD_FILE"),
+                   help="file holding the admin password (or env GANTRY_SMOKE_PASSWORD_FILE); required")
     p.add_argument("--user-email", default=os.getenv("GANTRY_DEMO_USER_EMAIL", DEFAULT_USER_EMAIL))
     p.add_argument("--user-display-name", default=DEFAULT_USER_DISPLAY)
-    p.add_argument("--user-password-file", type=Path, default=Path(os.getenv(
-        "GANTRY_DEMO_USER_PASSWORD_FILE", str(Path.home() / "demo/gantry-cpa/.secrets/demo_user_password"))))
+    p.add_argument("--user-password-file", type=Path, default=_env_path("GANTRY_DEMO_USER_PASSWORD_FILE"),
+                   help="file holding the walkthrough user's password (or env GANTRY_DEMO_USER_PASSWORD_FILE)")
     p.add_argument("--admin-display-name", default=DEFAULT_ADMIN_DISPLAY)
     p.add_argument("--firm-name", default=DEFAULT_FIRM_NAME,
                    help="firm name GANTRY_DEMO_FIRM_NAME should show on the instance (checked, never set)")
@@ -238,15 +267,21 @@ def parse_args(argv=None):
     p.add_argument("--log", type=Path, default=Path(os.getenv("GANTRY_DEMO_SEED_LOG", "cpa_demo_seed.log")))
     p.add_argument("--apply", action="store_true", help="make the changes (default: dry run)")
     p.add_argument("--yes", action="store_true", help="allow a non-loopback target")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if not args.url:
+        p.error("--url (or env GANTRY_SMOKE_URL) is required")
+    if not args.admin_password_file:
+        p.error("--admin-password-file (or env GANTRY_SMOKE_PASSWORD_FILE) is required")
+    return args
 
 
 def run(args) -> int:  # noqa: C901 -- linear script flow
     log = Log(args.log)
     mode = "APPLY" if args.apply else "DRY-RUN"
     log(f"cpa_demo_seed {mode} target={args.url} admin={args.admin_email} user={args.user_email}")
-    if not is_loopback(args.url) and not args.yes:
-        log("refused: target is not loopback; re-run with --yes if that is intended")
+    refusal = target_refusal(args.url, args.yes)
+    if refusal:
+        log("refused: " + refusal)
         return 2
     check_path_allowed(args.samples)
     samples = sample_files(args.samples)
@@ -278,6 +313,10 @@ def run(args) -> int:  # noqa: C901 -- linear script flow
     walk_exists = any(u["email"].lower() == args.user_email.lower() for u in users)
     user_pw = None
     if walk_exists or args.apply:
+        if not args.user_password_file:
+            log("refused: the walkthrough user's password file is required (--user-password-file or "
+                "GANTRY_DEMO_USER_PASSWORD_FILE)")
+            return 2
         user_pw = read_secret(args.user_password_file, "walkthrough user")
     walk = Client(args.url)
     col = None

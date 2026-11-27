@@ -36,13 +36,16 @@ USER_PW = "sarah-pw-123456"
 
 
 @pytest.mark.parametrize("title,leftover", [
-    ("Moto test", True), ("moto TEST 2", True), ("Smoke run", True), ("Testing citations", True),
-    ("Whitfield CP2000 question", False), ("Okafor 2025 return", False), ("Contest results", False),
-    # substring-only hits must never match: whole words only
+    # known leftover titles and prefixes
+    ("Moto test", True), ("moto TEST 2", True), ("moto", True), ("Smoke run", True), ("probe 3", True),
+    ("Tests", True), ("Testing", True), ("test", True), ("test 3", True), ("Debug", True), ("debug 2", True),
+    # real work that merely contains the words must survive
+    ("safe-harbor test", False), ("Safe harbor test for Whitfield", False), ("Okafor debug notes", False),
+    ("Whitfield CP2000 question", False), ("Okafor 2025 return", False), ("Testing citations", False),
     ("Attestation letter", False), ("attestation", False), ("Contest", False), ("contested deduction", False),
-    ("Latest filing status", False), ("Protest letter", False), ("Testimony prep", False),
-    ("Debugging notes for Okafor", False), ("Probed amounts", False), ("Motorcycle dealer return", False),
-    ("Tests", True), ("Testing", True), ("test 3", True), ("Debug", True), ("moto", True),
+    ("Contest results", False), ("Latest filing status", False), ("Protest letter", False),
+    ("Testimony prep", False), ("Debugging notes for Okafor", False), ("Probed amounts", False),
+    ("Motorcycle dealer return", False), ("Smoker deduction question", False), ("Attest test", False),
 ])
 def test_leftover_titles(title, leftover):
     assert seed.is_leftover_title(title) is leftover
@@ -179,7 +182,7 @@ def instance(db_session, monkeypatch, tmp_path):
 
 
 def _argv(tmp_path, *extra):
-    return ["--admin-password-file", str(tmp_path / "admin_pw"), "--user-password-file", str(tmp_path / "user_pw"),
+    return ["--url", "http://127.0.0.1:9", "--admin-password-file", str(tmp_path / "admin_pw"), "--user-password-file", str(tmp_path / "user_pw"),
             "--log", str(tmp_path / "seed.log"), *extra]
 
 
@@ -224,8 +227,38 @@ def test_refuses_when_target_is_not_in_demo_mode(instance, monkeypatch, db_sessi
 
 
 def test_refuses_non_loopback_without_yes(instance):
-    assert seed.main(_argv(instance, "--url", "http://10.0.0.5:8013")) == 2
+    assert seed.main(_argv(instance)[2:] + ["--url", "http://10.0.0.5:8013"]) == 2
     assert "refused" in (instance / "seed.log").read_text()
+
+
+def test_non_loopback_with_yes_still_needs_https(instance):
+    argv = _argv(instance)[2:]
+    assert seed.main(argv + ["--url", "http://10.0.0.5:8013", "--yes"]) == 2
+    assert "must use https" in (instance / "seed.log").read_text()
+    assert seed.target_refusal("https://demo.example.org", True) is None
+    assert seed.target_refusal("https://demo.example.org", False) is not None
+    assert seed.target_refusal("http://127.0.0.1:9", False) is None
+
+
+def test_url_and_admin_password_file_are_required_not_defaulted(monkeypatch, tmp_path):
+    for name in ("GANTRY_SMOKE_URL", "GANTRY_SMOKE_PASSWORD_FILE", "GANTRY_DEMO_USER_PASSWORD_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(SystemExit):
+        seed.parse_args(["--admin-password-file", str(tmp_path / "x")])
+    with pytest.raises(SystemExit):
+        seed.parse_args(["--url", "http://127.0.0.1:9"])
+    ns = seed.parse_args(["--url", "http://127.0.0.1:9", "--admin-password-file", str(tmp_path / "x")])
+    assert ns.user_password_file is None
+
+
+def test_no_host_specific_paths_or_ports_are_baked_into_the_scripts():
+    for name in ("cpa_demo_seed.py", "cpa_demo_rehearse.py"):
+        text = (REPO / "scripts" / name).read_text()
+        for needle in ("8013", ".secrets", ".nebulus", "nebulus-gantry", "/Users/", "/home/", "demo/gantry-cpa"):
+            assert needle not in text, f"{needle!r} in {name}"
+    docs = (REPO / "docs" / "cpa-demo-mode.md").read_text()
+    for needle in ("8013", ".secrets", ".nebulus", "nebulus-gantry", "demo/gantry-cpa"):
+        assert needle not in docs
 
 
 def test_log_lines_are_json_parsable_plan_entries(instance):

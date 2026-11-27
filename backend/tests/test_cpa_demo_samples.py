@@ -16,7 +16,8 @@ RETIRED_NAMES = ("lakeview", "tidewater", "harborview")
 STREET_ADDRESS = re.compile(
     r"\b\d{1,5}\s+[A-Z][a-z]+(\s+[A-Z][a-z]+)?\s+(St|Street|Ave|Avenue|Rd|Road|Blvd|Dr|Drive|Ln|Lane|Way|Ct|Court)\b"
 )
-FICTIONAL_PAYERS = ("Sample Catering Co.", "Example Card Payments Co.", "Sample Credit Union")
+FICTIONAL_PAYERS = ("Sample Catering Co. (fictional)", "Example Card Payments Co. (fictional)",
+                    "Sample Credit Union (fictional)")
 
 
 def test_there_are_seven_sample_files():
@@ -66,9 +67,9 @@ def test_new_files_say_fictional_in_the_header_and_end_with_a_footer(path):
 def test_payers_are_the_clearly_fictional_names_in_every_file_that_mentions_them():
     text = {f.name: f.read_text() for f in FILES}
     assert all(p in text["SAMPLE_whitfield_2025_1099_summary.txt"] for p in FICTIONAL_PAYERS)
-    assert "Sample Catering Co." in text["SAMPLE_whitfield_irs_cp2000_2024.txt"]
-    assert "Sample Catering Co." in text["SAMPLE_document_requests_2026-11.txt"]
-    assert "Sample Catering Co." in text["SAMPLE_whitfield_2024_form1040_summary.txt"]
+    assert "Sample Catering Co. (fictional)" in text["SAMPLE_whitfield_irs_cp2000_2024.txt"]
+    assert "Sample Catering Co. (fictional)" in text["SAMPLE_document_requests_2026-11.txt"]
+    assert "Sample Catering Co. (fictional)" in text["SAMPLE_whitfield_2024_form1040_summary.txt"]
 
 
 def test_clients_map_to_the_cards_and_rehearsal_expectations():
@@ -80,3 +81,17 @@ def test_clients_map_to_the_cards_and_rehearsal_expectations():
     assert expected["cards"]["client-1099s"]["sources"] == ["SAMPLE_whitfield_2025_1099_summary.txt"]
     assert "Whitfield" in (SAMPLES / "SAMPLE_whitfield_2025_1099_summary.txt").read_text()
     assert "Whitfield" in (SAMPLES / "SAMPLE_whitfield_2024_form1040_summary.txt").read_text()
+
+
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.name)
+def test_every_fictional_payer_mention_is_labeled(path):
+    text = path.read_text()
+    for bare in ("Sample Catering Co.", "Example Card Payments Co.", "Sample Credit Union"):
+        assert text.count(bare) == text.count(f"{bare} (fictional)")
+
+
+@pytest.mark.parametrize("name", ["SAMPLE_document_requests_2026-11.txt", "SAMPLE_whitfield_2024_form1040_summary.txt",
+                                  "SAMPLE_whitfield_2025_1099_summary.txt"])
+def test_new_files_label_the_bakery_as_fictional(name):
+    assert "Harbor Lane Bakery LLC, fictional" in (SAMPLES / name).read_text() or \
+        "Harbor Lane Bakery LLC (fictional)" in (SAMPLES / name).read_text()

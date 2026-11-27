@@ -207,3 +207,24 @@ def test_live_fails_when_the_citation_is_wrong(tmp_path):
 def test_live_fails_without_an_audit_row(tmp_path):
     assert rh.run(_args(tmp_path, apply=True), api_factory=lambda url: FakeApi(GOOD_ANSWERS, audit=False)) == 1
     assert "no chat.query audit row found" in (tmp_path / "rehearse.log").read_text()
+
+
+def test_live_non_loopback_needs_yes_and_https(tmp_path):
+    def boom(*a, **k):
+        raise AssertionError("must refuse before connecting")
+
+    assert rh.run(_args(tmp_path, apply=True, url="http://10.1.2.3:8013", yes=True), api_factory=boom) == 2
+    assert "must use https" in (tmp_path / "rehearse.log").read_text()
+    assert rh.target_refusal("https://demo.example.org", True) is None
+
+
+def test_live_requires_url_and_password_file(tmp_path):
+    def boom(*a, **k):
+        raise AssertionError("must refuse before connecting")
+
+    args = _args(tmp_path, apply=True)
+    args.url = ""
+    assert rh.run(args, api_factory=boom) == 2
+    args = _args(tmp_path, apply=True)
+    args.password_file = None
+    assert rh.run(args, api_factory=boom) == 2

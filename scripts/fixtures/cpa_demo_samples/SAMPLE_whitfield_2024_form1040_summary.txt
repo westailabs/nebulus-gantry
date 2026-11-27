@@ -1,5 +1,5 @@
 SYNTHETIC SAMPLE - FICTIONAL TAXPAYER - NOT A REAL TAXPAYER - FOR DEMO ONLY
-Client: Dana Whitfield (owner, Harbor Lane Bakery LLC)   SSN: 000-00-1234 (fake)
+Client: Dana Whitfield (owner, Harbor Lane Bakery LLC, fictional)   SSN: 000-00-1234 (fake)
 Tax year 2024 Form 1040 summary (as originally filed) prepared by Sample & Co. CPAs, filed 2025-04-11.
 Filing status: Married filing jointly (spouse: Riley Whitfield).
 Line 1z wages: $39,800
@@ -9,5 +9,5 @@ Line 15 taxable income: $50,430
 Line 24 total tax: $6,515
 Line 33 total payments: $7,425
 Line 34 overpaid / refund: $910 (direct deposit)
-Note: the Form 1099-NEC from Sample Catering Co. ($3,200) was not included; see the 2026 CP2000 notice.
+Note: the Form 1099-NEC from Sample Catering Co. (fictional) ($3,200) was not included; see the 2026 CP2000 notice.
 END OF SYNTHETIC SAMPLE - FICTIONAL - FOR DEMO ONLY
