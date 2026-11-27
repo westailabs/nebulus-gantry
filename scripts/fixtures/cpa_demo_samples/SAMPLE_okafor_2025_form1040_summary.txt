@@ -1,0 +1,7 @@
+SYNTHETIC SAMPLE - NOT A REAL TAXPAYER - FOR DEMO ONLY
+Client: Samuel Okafor   SSN: 000-00-5678 (fake)
+Tax year 2025 Form 1040 summary, filed 2026-03-18. Filing status: Single.
+Line 1z wages: $96,400
+Line 11 adjusted gross income (AGI): $98,150
+Line 24 total tax: $13,980
+Line 37 amount owed: $420 (paid with return)

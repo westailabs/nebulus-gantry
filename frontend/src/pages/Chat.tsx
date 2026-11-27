@@ -10,7 +10,8 @@ import { ExportActions } from '../components/ExportActions';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
-import { useHideDevChrome } from '../stores/configStore';
+import { useConfigStore, useHideDevChrome } from '../stores/configStore';
+import { quickPromptsFor } from '../data/quickPrompts';
 import { chatApi, dispatchApi } from '../services/api';
 import type { Citation, Message, MessageMeta, Conversation, Persona } from '../types/api';
 
@@ -355,16 +356,11 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-const QUICK_PROMPTS = [
-  { label: 'Explain some code', prompt: 'Help me understand this code and suggest improvements for readability and performance.' },
-  { label: 'Brainstorm ideas', prompt: 'Help me brainstorm creative solutions for a technical challenge I\'m working on.' },
-  { label: 'Write documentation', prompt: 'Help me write clear, concise documentation for my project.' },
-  { label: 'Debug an issue', prompt: 'I\'m running into a bug. Help me trace the issue and find the root cause.' },
-];
-
-function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?: string) => void; isSending: boolean }) {
+export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?: string) => void; isSending: boolean }) {
   const user = useAuthStore((state) => state.user);
   const firstName = user?.display_name?.split(' ')[0] || 'there';
+  const demoMode = useConfigStore((state) => state.demoMode);
+  const quickPrompts = quickPromptsFor(demoMode);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -382,7 +378,7 @@ function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?
 
           {/* Quick-start suggestions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
-            {QUICK_PROMPTS.map((item) => (
+            {quickPrompts.map((item) => (
               <button
                 key={item.label}
                 onClick={() => onSend(item.prompt)}
