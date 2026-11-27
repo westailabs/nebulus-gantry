@@ -38,6 +38,11 @@ USER_PW = "sarah-pw-123456"
 @pytest.mark.parametrize("title,leftover", [
     ("Moto test", True), ("moto TEST 2", True), ("Smoke run", True), ("Testing citations", True),
     ("Whitfield CP2000 question", False), ("Okafor 2025 return", False), ("Contest results", False),
+    # substring-only hits must never match: whole words only
+    ("Attestation letter", False), ("attestation", False), ("Contest", False), ("contested deduction", False),
+    ("Latest filing status", False), ("Protest letter", False), ("Testimony prep", False),
+    ("Debugging notes for Okafor", False), ("Probed amounts", False), ("Motorcycle dealer return", False),
+    ("Tests", True), ("Testing", True), ("test 3", True), ("Debug", True), ("moto", True),
 ])
 def test_leftover_titles(title, leftover):
     assert seed.is_leftover_title(title) is leftover
@@ -248,3 +253,37 @@ def test_seed_reports_ok_when_the_firm_name_matches(instance, monkeypatch):
     assert seed.main(_argv(instance)) == 0
     log = (instance / "seed.log").read_text()
     assert "firm name ok: 'Sample & Co. CPAs'" in log and "warn: instance firm name" not in log
+
+
+def test_dry_run_lists_exactly_the_threads_it_would_delete_and_deletes_none(instance, db_session):
+    db = db_session()
+    admin = db.query(User).one()
+    db.add_all([Conversation(user_id=admin.id, title="Attestation prep"),
+                Conversation(user_id=admin.id, title="Contest notes")])
+    db.commit()
+    db.close()
+    assert seed.main(_argv(instance)) == 0
+    plans = [json.loads(line.split("plan: ", 1)[1]) for line in (instance / "seed.log").read_text().splitlines()
+             if " plan: " in line]
+    deletes = [p for p in plans if p["action"] == "delete_thread"]
+    assert [(d["owner"], d["title"]) for d in deletes] == [("admin", "Moto test")]
+    assert db_session().query(Conversation).count() == 4  # nothing deleted
+
+
+def test_apply_only_touches_admin_and_sarah_threads(instance, db_session):
+    db = db_session()
+    bob = AuthService(db).create_user(email="bob@example.com", password="bob-pw-123456",
+                                      display_name="Bob", role="user")
+    admin = db.query(User).filter_by(email="admin@gantry-demo.example.com").one()
+    db.add_all([Conversation(user_id=bob.id, title="Moto test"),
+                Conversation(user_id=admin.id, title="Attestation prep"),
+                Conversation(user_id=admin.id, title="Contest notes")])
+    db.commit()
+    db.close()
+    assert seed.main(_argv(instance, "--apply")) == 0
+    db = db_session()
+    titles = sorted((db.get(User, c.user_id).email, c.title) for c in db.query(Conversation))
+    assert titles == [("admin@gantry-demo.example.com", "Attestation prep"),
+                      ("admin@gantry-demo.example.com", "Contest notes"),
+                      ("admin@gantry-demo.example.com", "Setup notes"),
+                      ("bob@example.com", "Moto test")]

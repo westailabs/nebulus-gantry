@@ -53,7 +53,8 @@ DEFAULT_ADMIN_DISPLAY = "Setup Admin"
 DEFAULT_FIRM_NAME = "Sample & Co. CPAs"
 SAMPLE_COLLECTION = "SAMPLE Clients (synthetic)"
 THEATRICAL_ADMIN_NAMES = ("demo admin",)
-# Titles of leftover engineering/test threads. Matched case-insensitively as words.
+# Titles of leftover engineering/test threads. Whole words only (\b on both sides), so
+# "test" matches "Moto test" and "Testing" but never "attestation" or "contest".
 DEFAULT_LEFTOVER_PATTERNS = (r"\bmoto\b", r"\btest(s|ing)?\b", r"\bsmoke\b", r"\bprobe\b", r"\bdebug\b")
 SYNTHETIC_NAME = re.compile(r"\b(sample|synthetic)\b", re.IGNORECASE)
 # The other Gantry checkout on the demo box must never be a source of files for this script.

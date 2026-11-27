@@ -67,8 +67,10 @@ It makes sure that:
    they differ.
 2. No account is shown as "Demo Admin". The setup admin is renamed "Setup Admin" and stays
    an admin for setup only; don't use it for the walkthrough.
-3. Leftover threads ("Moto test", "smoke", "probe", "test", "debug") owned by the admin or
-   by the walkthrough user are deleted. Other users' threads are left alone.
+3. Leftover threads owned by the admin or by the walkthrough user are deleted when a title
+   contains the whole word moto, test (also tests, testing), smoke, probe or debug. Whole words
+   only: "Attestation prep" and "Contest notes" are kept. The dry run lists each thread it
+   would delete (owner, id, title) in the log. Other users' threads are never touched.
 4. The walkthrough user has a `SAMPLE Clients (synthetic)` collection with every
    `scripts/fixtures/cpa_demo_samples/SAMPLE_*.txt` file. Only missing files are uploaded.
 5. Any collection whose name doesn't read as synthetic is reported, never deleted.
