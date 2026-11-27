@@ -2,6 +2,7 @@ import { type ReactNode, useState, useEffect, useCallback } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useUIStore } from '../stores/uiStore';
+import { useConfigStore } from '../stores/configStore';
 import { SearchModal } from './SearchModal';
 
 function navLinkClass({ isActive }: { isActive: boolean }) {
@@ -23,6 +24,8 @@ export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuthStore();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { isSidebarOpen, toggleSidebar, closeSidebar, overlordAvailable, checkOverlord } = useUIStore();
+  // CPA demo mode: show the configured fictional firm name next to the product mark.
+  const demoFirmName = useConfigStore((s) => (s.demoMode ? s.firmName : ''));
 
   // Probe Overlord availability once on mount
   useEffect(() => {
@@ -106,6 +109,11 @@ export function Layout({ children }: LayoutProps) {
                 NEBULUS <span className="text-n-text-secondary font-medium">GANTRY</span>
               </span>
             </Link>
+            {demoFirmName && (
+              <span className="hidden sm:inline text-sm text-n-text-secondary border-l border-gray-600 pl-3" data-testid="header-firm-name">
+                {demoFirmName}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-3">

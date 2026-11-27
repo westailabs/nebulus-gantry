@@ -363,6 +363,7 @@ export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string,
   const user = useAuthStore((state) => state.user);
   const firstName = user?.display_name?.split(' ')[0] || 'there';
   const demoMode = useConfigStore((state) => state.demoMode);
+  const firmName = useConfigStore((state) => state.firmName);
   const quickPrompts = quickPromptsFor(demoMode);
 
   return (
@@ -378,6 +379,11 @@ export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string,
               <span className="text-3xl">🏍️</span>
             )}
           </div>
+          {demoMode && firmName && (
+            <p className="text-sm font-medium tracking-wide text-cyan-200/90 mb-1" data-testid="demo-firm-name">
+              {firmName}
+            </p>
+          )}
           <h2 className="text-xl sm:text-2xl font-semibold text-gray-200 mb-2">
             {getGreeting()}, {firstName}.
           </h2>
@@ -398,6 +404,9 @@ export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string,
               </button>
             ))}
           </div>
+          {demoMode && (
+            <p className="mt-8 text-xs text-gray-500">Powered by West AI Labs</p>
+          )}
         </div>
       </div>
 

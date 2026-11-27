@@ -49,3 +49,23 @@ describe('Layout nav vs CPA demo mode', () => {
     expect(screen.queryByRole('link', { name: 'Orchestrator' })).not.toBeInTheDocument();
   });
 });
+
+describe('Layout header firm name (issue 5)', () => {
+  beforeEach(() => {
+    useUIStore.setState({ isSidebarOpen: false, overlordAvailable: false });
+    useAuthStore.setState({ user: member, isLoading: false, error: null });
+  });
+
+  it('demo mode: shows the firm name and the walkthrough user\'s display name', () => {
+    useConfigStore.setState({ demoMode: true, firmName: 'Sample & Co. CPAs', loaded: true });
+    renderLayout();
+    expect(screen.getByTestId('header-firm-name')).toHaveTextContent('Sample & Co. CPAs');
+    expect(screen.getByRole('link', { name: /Sarah Chen, CPA/ })).toBeInTheDocument();
+  });
+
+  it('flag off: no firm name even if one is configured', () => {
+    useConfigStore.setState({ demoMode: false, firmName: 'Sample & Co. CPAs', loaded: true });
+    renderLayout();
+    expect(screen.queryByTestId('header-firm-name')).not.toBeInTheDocument();
+  });
+});

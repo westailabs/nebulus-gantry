@@ -82,3 +82,30 @@ describe('WelcomeScreen subtitle and mark (issue 4)', () => {
     }
   });
 });
+
+describe('WelcomeScreen light white-label (issue 5)', () => {
+  it('flag on: shows the configured firm name and "Powered by West AI Labs"', () => {
+    renderWelcome(true, 'Sample & Co. CPAs');
+    expect(screen.getByTestId('demo-firm-name')).toHaveTextContent('Sample & Co. CPAs');
+    expect(screen.getByText('Powered by West AI Labs')).toBeInTheDocument();
+  });
+
+  it('flag on without a firm name: no empty firm line, still "Powered by"', () => {
+    renderWelcome(true, '');
+    expect(screen.queryByTestId('demo-firm-name')).not.toBeInTheDocument();
+    expect(screen.getByText('Powered by West AI Labs')).toBeInTheDocument();
+  });
+
+  it('flag off: no firm name and no "Powered by" even if a firm name is configured', () => {
+    renderWelcome(false, 'Sample & Co. CPAs');
+    expect(screen.queryByTestId('demo-firm-name')).not.toBeInTheDocument();
+    expect(screen.queryByText('Powered by West AI Labs')).not.toBeInTheDocument();
+  });
+
+  it('greets the walkthrough user by first name, never "Demo"', () => {
+    renderWelcome(true, 'Sample & Co. CPAs');
+    const greeting = screen.getByRole('heading', { level: 2 }).textContent ?? '';
+    expect(greeting).toContain('Sarah');
+    expect(document.body.textContent).not.toMatch(/Demo Admin|Moto test/);
+  });
+});
