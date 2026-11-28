@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Smoke test / similarity calibration for a Gantry demo instance. Never prints secrets.
 
-Config (env): GANTRY_SMOKE_URL (default http://127.0.0.1:8013), GANTRY_SMOKE_EMAIL,
-GANTRY_SMOKE_PASSWORD_FILE (a file holding the password; never pass it on the command line),
-GANTRY_SMOKE_SAMPLES (dir of SAMPLE_*.txt synthetic docs), GANTRY_SMOKE_LLM_URL and
+Config (env): GANTRY_SMOKE_URL (default http://localhost:8000), GANTRY_SMOKE_EMAIL,
+GANTRY_SMOKE_PASSWORD_FILE (required: a file holding the password; never pass it on the
+command line), GANTRY_SMOKE_SAMPLES (dir of SAMPLE_*.txt synthetic docs; default: this repo's
+scripts/fixtures/cpa_demo_samples), GANTRY_SMOKE_LLM_URL and
 GANTRY_SMOKE_LLM_MODEL (for probe). Use synthetic documents only.
 
   basic   : login + one chat
@@ -21,11 +22,12 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-BASE = os.getenv("GANTRY_SMOKE_URL", "http://127.0.0.1:8013")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BASE = os.getenv("GANTRY_SMOKE_URL", "http://localhost:8000")
 EMAIL = os.getenv("GANTRY_SMOKE_EMAIL", "admin@gantry-demo.example.com")
-PW_FILE = Path(os.getenv("GANTRY_SMOKE_PASSWORD_FILE",
-                         str(Path.home() / "demo/gantry-cpa/.secrets/admin_password")))
-SAMPLES = Path(os.getenv("GANTRY_SMOKE_SAMPLES", str(Path.home() / "demo/gantry-cpa-samples")))
+# No default password path: point GANTRY_SMOKE_PASSWORD_FILE at your own file.
+PW_FILE = Path(os.environ["GANTRY_SMOKE_PASSWORD_FILE"]) if os.getenv("GANTRY_SMOKE_PASSWORD_FILE") else None
+SAMPLES = Path(os.getenv("GANTRY_SMOKE_SAMPLES", str(REPO_ROOT / "scripts" / "fixtures" / "cpa_demo_samples")))
 LLM_URL = os.getenv("GANTRY_SMOKE_LLM_URL", "http://127.0.0.1:8090")
 LLM_MODEL = os.getenv("GANTRY_SMOKE_LLM_MODEL", "nemotron-bolt")
 jar = http.cookiejar.CookieJar()
@@ -149,6 +151,8 @@ def main():
     if mode == "feature" and not _is_loopback(BASE) and "--yes" not in sys.argv:
         sys.exit("feature mode creates collections, uploads, conversations and exports on the "
                  "target. It isn't loopback; re-run with --yes if that's intended.")
+    if PW_FILE is None:
+        sys.exit("set GANTRY_SMOKE_PASSWORD_FILE to a file holding the admin password")
     req("POST", "/api/auth/login", {"email": EMAIL, "password": PW_FILE.read_text().strip()})
     print("login ok; me:", req("GET", "/api/auth/me").get("email"))
     if mode == "calibrate":

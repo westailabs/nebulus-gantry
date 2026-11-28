@@ -66,13 +66,18 @@ def client():
 
 @pytest.fixture
 def test_user(db):
-    """Create a regular user and return (user, session_token)."""
+    """Create an admin and return (user, session_token).
+
+    Only admins may override the model per message (a non-admin's override is ignored,
+    see test_demo_message_audit.TestModelOverrideInDemoMode), so these switching tests
+    run as an admin.
+    """
     auth = AuthService(db)
     user = auth.create_user(
         email="user@test.com",
         password="correctpass",
         display_name="Test User",
-        role="user",
+        role="admin",
     )
     token = auth.create_session(user.id)
     return user, token

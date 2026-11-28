@@ -116,29 +116,51 @@ class TestItem2Floor:
             out = svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])
         assert [h["document_id"] for h in out] == [1]
 
-    def test_default_is_still_off(self, db, monkeypatch):
+    def test_unset_is_still_off(self, db, monkeypatch):
         monkeypatch.delenv("GANTRY_MIN_SOURCE_SIMILARITY", raising=False)
         svc, p = self._svc(db, [dict(SOURCES[0], similarity=0.05)])
         with p:
             assert len(svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])) == 1
 
-    def test_typo_warns_and_falls_back_to_off(self, db, monkeypatch, caplog):
+    def test_typo_warns_and_falls_back_to_the_default_floor(self, db, monkeypatch, caplog):
+        # A bad value must not silently turn the floor off: it falls back to 0.42.
         monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", "0,42")
-        svc, p = self._svc(db, [dict(SOURCES[0], similarity=0.05)])
+        svc, p = self._svc(db, [dict(SOURCES[0], document_id=1, similarity=0.05),
+                                dict(SOURCES[0], document_id=2, similarity=0.43)])
         with caplog.at_level(logging.WARNING), p:
             out = svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])
-        assert len(out) == 1
+        assert [h["document_id"] for h in out] == [2]
         assert [r for r in caplog.records if "GANTRY_MIN_SOURCE_SIMILARITY" in r.getMessage()]
 
-    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf"])
-    def test_non_finite_rejected(self, db, monkeypatch, caplog, raw):
+    @pytest.mark.parametrize("raw", ["nan", "inf", "-inf", "abc"])
+    def test_non_finite_or_invalid_falls_back_to_default(self, monkeypatch, caplog, raw):
+        from backend.services.document_service import _min_similarity
         monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", raw)
-        svc, p = self._svc(db, [dict(SOURCES[0], similarity=0.99)])
-        with caplog.at_level(logging.WARNING), p:
-            assert len(svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])) == 1
+        with caplog.at_level(logging.WARNING):
+            assert _min_similarity() == 0.42
         assert [r for r in caplog.records if "GANTRY_MIN_SOURCE_SIMILARITY" in r.getMessage()]
 
-    @pytest.mark.parametrize("raw,expected", [("1.5", 1.0), ("-0.3", 0.0), ("0.42", 0.42), ("", 0.0)])
+    @pytest.mark.parametrize("raw", ["", "   "])
+    def test_blank_falls_back_to_default_floor(self, db, monkeypatch, raw):
+        from backend.services.document_service import _min_similarity
+        monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", raw)
+        assert _min_similarity() == 0.42
+        svc, p = self._svc(db, [dict(SOURCES[0], document_id=1, similarity=0.05),
+                                dict(SOURCES[0], document_id=2, similarity=0.43)])
+        with p:
+            out = svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])
+        assert [h["document_id"] for h in out] == [2]
+
+    @pytest.mark.parametrize("raw", ["0", "0.0", " 0 ", "-0.3"])
+    def test_explicit_zero_still_turns_the_floor_off(self, db, monkeypatch, raw):
+        from backend.services.document_service import _min_similarity
+        monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", raw)
+        assert _min_similarity() == 0.0
+        svc, p = self._svc(db, [dict(SOURCES[0], similarity=0.05)])
+        with p:
+            assert len(svc.retrieve_sources(1, "q", [{"type": "collection", "id": 1}])) == 1
+
+    @pytest.mark.parametrize("raw,expected", [("1.5", 1.0), ("-0.3", 0.0), ("0.42", 0.42), ("0.5", 0.5)])
     def test_clamped_to_unit_interval(self, monkeypatch, raw, expected):
         from backend.services.document_service import _min_similarity
         monkeypatch.setenv("GANTRY_MIN_SOURCE_SIMILARITY", raw)

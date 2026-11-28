@@ -36,25 +36,57 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
   there as well. A deployment that must not keep client text has to run without LTM and apply a
   conversation retention policy. Both are outside this branch.
 
+### Per-answer audit link (CPA demo mode)
+
+With `GANTRY_DEMO_MODE` on, every saved assistant answer shows a "View audit entry" link. It
+calls `GET /api/chat/messages/{message_id}/audit`, which returns the `chat.query` row whose
+`detail.message_id` matches, but only if the caller wrote that row for a conversation they
+own. Admins get no wider view through this route; the full list and CSV stay under
+`/api/admin/audit`. The response leaves out `ip_address` and keeps only the non-sensitive
+`detail` keys (outcome, refused, scoped, model, correlation_id, message_id, timing). The
+route returns 404 when demo mode is off. Audit rows already keep `message_id` in their JSON
+`detail` (no column, no migration), so the link keys on it. Refusals now record their
+`message_id` too, and the refusal `done` event carries `correlation_id` like a normal answer.
+Refusal rows written before that have no `message_id`; for those the link falls back to
+`GET /api/chat/conversations/{id}/audit`, the caller's own `chat.query` rows for that one
+thread (404 for threads they don't own, demo mode only, no `ip_address`), and the viewer
+says it is showing the thread's entries.
+
 ## Citations
 - When a conversation has a document scope, the scope goes into the vector query itself as a Chroma
   `where` clause (collection ids OR document ids), so out-of-scope chunks can't crowd out in-scope ones.
-- Hits below `GANTRY_MIN_SOURCE_SIMILARITY` (default `0`, which turns the floor off) or without a
-  document id are dropped. If nothing is left, the question is refused.
+- Hits below `GANTRY_MIN_SOURCE_SIMILARITY` or without a document id are dropped. Not set at all:
+  the floor is off. Explicit `0`: off, on purpose. Set but blank, or not a number (`0,42`, `abc`,
+  `nan`): the floor falls back to the recommended `0.42` (an invalid value also logs a WARNING),
+  so a typo can't silently turn the floor off. If nothing is left, the question is refused.
   A bounded lexical (BM25-style) boost may be added to the dense similarity before the floor is
   applied, so an exact-term near-miss such as "What was the Whitfield AGI?" (dense 0.3986) can
   clear a 0.42 floor. The floor value itself is not changed. The boost is at most
   `GANTRY_KEYWORD_BOOST_MAX` (default `0.05`, capped at `0.10`), only applies when the dense
   score is within `GANTRY_KEYWORD_BOOST_WINDOW` (default `0.06`) of the floor, and only when
   weighted query-term coverage in the chunk (or filename) is at least
-  `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Set `GANTRY_KEYWORD_BOOST=off` to disable.
+  `GANTRY_KEYWORD_BOOST_MIN_SCORE` (default `0.5`). Simple English plurals are folded to the singular
+  on both sides ("documents" matches "document"), which is what lifts the "which clients are still
+  missing documents" starter card (dense 0.417, coverage 0.49 -> 0.54) over the 0.42 floor. Set
+  `GANTRY_KEYWORD_BOOST=off` to disable. `backend/tests/test_cpa_floor_calibration.py` pins both sides on
+  recorded scores (`scripts/fixtures/cpa_floor_calibration.json`): every starter card clears 0.42 and
+  every generic off-topic question stays below it.
   The public `/api/documents/search` path is unboosted, so `calibrate` still measures raw
   dense similarity.
-  The value is clamped to [0, 1]. An unparseable or non-finite value logs a WARNING and turns the
-  floor off. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
+  The value is clamped to [0, 1]. **Recommended for the CPA demo: `0.42`**, which is committed in `.env.example` and is the
   `docker-compose.yml` default. Under compose a blank value also gets 0.42, so only an explicit `0`
-  turns the floor off. The demo instance (not started by compose) must set
+  turns the floor off (the app itself now treats a blank value the same way). The demo instance (not started by compose) must set
   `GANTRY_MIN_SOURCE_SIMILARITY=0.42` in its own env.
+- **Only cited sources are shown.** After the reply is generated, the `sources` event, the `done`
+  event's `sources`, and the saved message keep only the citations whose `[n]` (or `[n, m]`) marker
+  appears in the reply text. A reply with no marker, such as a "could not find" answer, shows no
+  source chips (`sources: []`). Original numbering is kept: `[2]` in the text is still source 2, so
+  nothing is renumbered or rewritten; markers with no matching source (out of range, `[0]`) are
+  ignored. The `sources` event now arrives after the text, just before `done`, so inline `[n]`
+  links appear when the answer finishes rather than while it streams. The prompt also tells the
+  model not to write `[n]` when the sources don't contain the answer. The audit row keeps the full
+  retrieval set: `doc_ids` lists every retrieved document, and `detail.retrieved_n` / `detail.cited_n`
+  record which source numbers were retrieved and which the reply cited.
 - Pre-demo check: run `scripts/cpa_demo_smoke.py feature` against the demo instance and expect
   `off-topic in scope ... refused=True`. `calibrate` reads raw similarities from
   `POST /api/documents/search`, which applies no floor, so it still works while the floor is on. Calibrated on 2026-11-22 against the
@@ -71,6 +103,18 @@ Merged to develop in #4 (d827ab4); pre-demo hardening in #5.
 - No source retrieved means a refusal without calling the LLM (`GANTRY_REFUSE_WITHOUT_SOURCES`, default `true`).
   If the vector store is down, the user gets a separate "document search unavailable" message,
   which is audited as `retrieval_error` and not as a refusal.
+
+### Run this before every demo
+
+Run `python scripts/cpa_demo_rehearse.py --apply` against the demo instance, logged in as
+the walkthrough user (`GANTRY_SMOKE_EMAIL`, `GANTRY_SMOKE_PASSWORD_FILE`), before every
+demo. It asks every CPA starter card (the same `frontend/src/demo/cpaStarterCards.json` the
+UI shows) against the `SAMPLE Clients (synthetic)` collection. A card fails unless its answer
+holds the expected facts from `scripts/fixtures/cpa_rehearsal_expected.json`, at least one
+citation comes from the expected `SAMPLE_*` file, and the turn has a `chat.query` audit row
+that the per-answer link can open. The script exits non-zero if any card fails, so don't
+demo until it passes. Without `--apply` it only writes the plan to its log and makes no API
+or LLM calls. Rehearsal threads are deleted afterwards unless you pass `--keep-threads`.
 
 ## Reasoning models
 - `reasoning_content` deltas are ignored. Inline `<think>`, `<thinking>` and `<reasoning>` blocks

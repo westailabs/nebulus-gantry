@@ -14,10 +14,14 @@ from sqlalchemy.orm import Session as DBSession
 from backend.config import settings
 from backend.dependencies import get_db
 from backend.routers.auth import get_current_user
-from backend.services.audit_service import AuditService, client_ip
+from backend.models.audit_event import AuditEvent
+from backend.models.conversation import Conversation
+from backend.models.message import Message
+from backend.services.audit_service import AuditService, client_ip, event_to_dict
 from backend.services.chat_service import ChatService
 from backend.services.document_service import (
     RetrievalError,
+    cited_citations,
     format_sources_context,
     sources_to_citations,
 )
@@ -377,6 +381,95 @@ def export_report(
     )
 
 
+# Fields of a chat.query audit row a user may see for their own answer (no IP address).
+_MESSAGE_AUDIT_DETAIL_KEYS = ("outcome", "refused", "scoped", "model", "correlation_id", "message_id",
+                              "retrieval_error", "error_type", "generation_time_ms", "query_chars")
+
+
+def _user_audit_entry(row: AuditEvent, detail: dict) -> dict:
+    entry = event_to_dict(row)
+    entry.pop("ip_address", None)
+    entry["detail"] = {k: detail[k] for k in _MESSAGE_AUDIT_DETAIL_KEYS if k in detail}
+    return entry
+
+
+def _own_chat_query_rows(db: DBSession, user_id: int, conversation_id: int) -> list[tuple[AuditEvent, dict]]:
+    """The caller's own chat.query rows for one conversation, newest first, with parsed detail."""
+    rows = (
+        db.query(AuditEvent)
+        .filter(
+            AuditEvent.action == "chat.query",
+            AuditEvent.user_id == user_id,
+            AuditEvent.resource_type == "conversation",
+            AuditEvent.resource_id == conversation_id,
+        )
+        .order_by(AuditEvent.id.desc())
+        .all()
+    )
+    out = []
+    for row in rows:
+        try:
+            out.append((row, json.loads(row.detail) if row.detail else {}))
+        except ValueError:
+            continue
+    return out
+
+
+@router.get("/messages/{message_id}/audit")
+def get_message_audit_entry(
+    message_id: int,
+    user=Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """The ``chat.query`` audit row behind one of *your own* assistant answers.
+
+    CPA demo mode only (404 otherwise): lets a non-admin open the logged entry for
+    an answer in one click without exposing the admin audit list or CSV export.
+    Audit rows already store ``message_id`` in their JSON ``detail`` (no schema
+    change); only rows the caller wrote for a conversation they own are returned.
+    Rows written before refusals recorded a message id are reachable through
+    ``GET /conversations/{id}/audit`` instead.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+    not_found = HTTPException(status_code=404, detail="No audit entry for this message")
+    msg = (
+        db.query(Message)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .filter(Message.id == message_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if msg is None or msg.role != "assistant":
+        raise not_found
+    for row, detail in _own_chat_query_rows(db, user.id, msg.conversation_id):
+        if detail.get("message_id") == message_id:
+            return _user_audit_entry(row, detail)
+    raise not_found
+
+
+@router.get("/conversations/{conversation_id}/audit")
+def get_conversation_audit_entries(
+    conversation_id: int,
+    user=Depends(get_current_user),
+    db: DBSession = Depends(get_db),
+):
+    """Your own ``chat.query`` audit rows for one of your threads (CPA demo mode only).
+
+    The thread-level fallback for answers whose audit row has no ``message_id``
+    (refusals logged before that was recorded). Never lists other users' rows or
+    other threads, and leaves out ip_address.
+    """
+    if not settings.demo_mode:
+        raise HTTPException(status_code=404, detail="Not found")
+    owned = db.query(Conversation).filter(
+        Conversation.id == conversation_id, Conversation.user_id == user.id
+    ).first()
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    rows = _own_chat_query_rows(db, user.id, conversation_id)
+    return {"conversation_id": conversation_id, "entries": [_user_audit_entry(r, d) for r, d in rows]}
+
+
 @router.post("/conversations/{conversation_id}/messages")
 async def send_message(  # noqa: C901
     conversation_id: int,
@@ -457,12 +550,13 @@ async def send_message(  # noqa: C901
         async def refuse():
             nonlocal outcome
             start_time = time.monotonic()
+            refusal_message_id = None
             try:
                 yield f"data: {json.dumps({'content': message})}\n\n"
                 meta = {"generation_time_ms": int((time.monotonic() - start_time) * 1000),
-                        "sources": [], "refused": True}
+                        "sources": [], "refused": True, "correlation_id": correlation_id}
                 yield f"event: done\ndata: {json.dumps(meta)}\n\n"
-                chat.add_message(conversation_id, "assistant", message)
+                refusal_message_id = chat.add_message(conversation_id, "assistant", message).id
             except (GeneratorExit, asyncio.CancelledError):
                 outcome = "client_aborted"
                 raise
@@ -471,7 +565,8 @@ async def send_message(  # noqa: C901
                     "chat.query", user=user, resource_type="conversation", resource_id=conversation_id,
                     doc_ids=[], query_text=request.content, ip_address=ip,
                     detail={"outcome": outcome, "refused": True, "retrieval_error": retrieval_error,
-                            "scoped": True, "model": None, "correlation_id": correlation_id},
+                            "scoped": True, "model": None, "correlation_id": correlation_id,
+                            "message_id": refusal_message_id},
                 )
 
         return StreamingResponse(refuse(), media_type="text/event-stream")
@@ -490,19 +585,26 @@ async def send_message(  # noqa: C901
     except Exception as e:
         logger.warning(f"Failed to load persona: {e}")
 
+    # Only admins may pick the model per message. A non-admin's model override is ignored
+    # (the instance's configured model is used), so they cannot trigger a server-side model
+    # switch (load/unload) on a shared instance. This holds with or without demo mode.
+    requested_model = request.model
+    if getattr(user, "role", None) != "admin":
+        requested_model = None
+
     # Ensure requested model is loaded (auto-switch if needed)
     model_service = ModelService()
-    if request.model:
+    if requested_model:
         active_model = await model_service.get_active_model()
-        if not active_model or active_model["id"] != request.model:
-            logger.info(f"Switching model from {active_model['id'] if active_model else 'none'} to {request.model}")
-            switch_success = await model_service.switch_model(request.model)
+        if not active_model or active_model["id"] != requested_model:
+            logger.info(f"Switching model from {active_model['id'] if active_model else 'none'} to {requested_model}")
+            switch_success = await model_service.switch_model(requested_model)
             if not switch_success:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to load model '{request.model}'. Please try again or select a different model."
+                    detail=f"Failed to load model '{requested_model}'. Please try again or select a different model."
                 )
-            logger.info(f"Model switched successfully to {request.model}")
+            logger.info(f"Model switched successfully to {requested_model}")
 
     # Query active model name for system prompt
     active_model = await model_service.get_active_model()
@@ -530,7 +632,7 @@ async def send_message(  # noqa: C901
 
     # Stream response from LLM — use requested model or default
     llm = LLMService()
-    llm_model = request.model or get_default_model()
+    llm_model = requested_model or get_default_model()
 
     async def generate():  # noqa: C901
         full_response = ""
@@ -539,10 +641,8 @@ async def send_message(  # noqa: C901
         error_type = None
         message_id = None
         meta: dict = {}
+        shown: list[dict] = []
         try:
-            if citations:
-                # Structured citations first, so the UI can render clickable sources.
-                yield f"event: sources\ndata: {json.dumps(citations)}\n\n"
             async for chunk in llm.stream_chat(
                 llm_messages, model=llm_model, temperature=persona_temperature
             ):
@@ -565,19 +665,26 @@ async def send_message(  # noqa: C901
             outcome = ("empty_answer" if last_error == "empty_answer" else "llm_error") if llm_failed \
                 else "completed"
 
+            # Only citations whose [n] appears in the final reply go to the client and the saved
+            # message (original numbering kept). A "could not find" answer with no [n] shows no
+            # source chips. The audit row below still records the full retrieval set.
+            shown = [] if llm_failed else cited_citations(full_response, citations)
+            if shown:
+                yield f"event: sources\ndata: {json.dumps(shown)}\n\n"
+
             generation_time_ms = int((time.monotonic() - start_time) * 1000)
             meta = _build_token_meta(llm, llm_messages, full_response, generation_time_ms)
             meta["correlation_id"] = correlation_id
             if rag_scoped:
-                meta["sources"] = [] if llm_failed else citations
+                meta["sources"] = shown
             yield f"event: done\ndata: {json.dumps(meta)}\n\n"
 
             # Save assistant response after streaming completes
             assistant_msg = chat.add_message(conversation_id, "assistant", full_response)
             message_id = assistant_msg.id
-            if citations and not llm_failed:
+            if shown:
                 try:
-                    assistant_msg.sources = json.dumps(citations)
+                    assistant_msg.sources = json.dumps(shown)
                     chat.db.commit()
                 except Exception as e:
                     # Roll back so the session stays usable for the audit row in finally.
@@ -597,6 +704,7 @@ async def send_message(  # noqa: C901
                 detail={"outcome": outcome, "error_type": error_type, "refused": False,
                         "scoped": rag_scoped, "model": llm_model, "correlation_id": correlation_id,
                         "message_id": message_id,
+                        "retrieved_n": [c["n"] for c in citations], "cited_n": [c["n"] for c in shown],
                         "generation_time_ms": int((time.monotonic() - start_time) * 1000),
                         "completion_tokens": meta.get("completion_tokens")},
             )

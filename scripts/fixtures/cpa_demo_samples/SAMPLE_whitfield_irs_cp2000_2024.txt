@@ -1,0 +1,6 @@
+SYNTHETIC SAMPLE IRS NOTICE - NOT REAL - FOR DEMO ONLY
+Notice CP2000 - Proposed changes to your 2024 Form 1040. Notice date: 2026-09-02.
+Taxpayers: Dana and Riley Whitfield   SSN: 000-00-1234 (fake)
+Reason: income reported to the IRS on Form 1099-NEC from Sample Catering Co. (fictional) ($3,200) does not match the return.
+Proposed additional tax: $704; estimated interest: $61; total proposed amount due: $765.
+Response due by 2026-10-02. Options: agree and pay, partially agree, or disagree with supporting documentation.

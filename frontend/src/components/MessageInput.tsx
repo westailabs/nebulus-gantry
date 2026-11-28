@@ -3,6 +3,7 @@ import type { KeyboardEvent, ChangeEvent } from 'react';
 import { modelsApi } from '../services/api';
 import type { Model } from '../types/api';
 import { useChatStore } from '../stores/chatStore';
+import { useHideDevChrome } from '../stores/configStore';
 
 interface MessageInputProps {
   onSend: (content: string, model?: string) => void;
@@ -23,6 +24,8 @@ export function MessageInput({
   const modelPickerRef = useRef<HTMLDivElement>(null);
 
   const { isModelSwitching, targetModel, setModelSwitching } = useChatStore();
+  // CPA demo mode: non-admins get no model picker; the instance's loaded model is used.
+  const hideModelPicker = useHideDevChrome();
 
   const fetchModels = useCallback(async () => {
     try {
@@ -105,12 +108,15 @@ export function MessageInput({
     const trimmed = content.trim();
     if (trimmed && !disabled) {
       // Check if model needs switching
+      // With the picker hidden (CPA demo, non-admin) send no model: the backend uses
+      // the instance's configured model and never switches.
+      const requestedModel = hideModelPicker ? undefined : selectedModel || undefined;
       const activeModel = models.find((m) => m.active);
-      if (selectedModel && activeModel && selectedModel !== activeModel.id) {
-        setModelSwitching(true, selectedModel);
+      if (requestedModel && activeModel && requestedModel !== activeModel.id) {
+        setModelSwitching(true, requestedModel);
       }
 
-      onSend(trimmed, selectedModel || undefined);
+      onSend(trimmed, requestedModel);
       setContent('');
       // Reset textarea height after clearing
       if (textareaRef.current) {
@@ -140,46 +146,48 @@ export function MessageInput({
   return (
     <div className="p-3 sm:p-4 border-t border-gray-700">
       <div className="max-w-3xl mx-auto">
-        {/* Model selector */}
-        <div className="relative mb-2" ref={modelPickerRef}>
-          <button
-            onClick={() => setShowModelPicker(!showModelPicker)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-200 rounded-md hover:bg-gray-700/50 transition-colors"
-            title="Select model"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            <span className="font-mono truncate max-w-[200px]">{modelLabel}</span>
-            <svg className={`w-3 h-3 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-          {showModelPicker && models.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 py-1 max-h-48 overflow-y-auto">
-              {models.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setSelectedModel(m.id);
-                    setShowModelPicker(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm transition-colors ${m.id === selectedModel
-                      ? 'bg-blue-500/15 text-blue-400'
-                      : 'text-gray-300 hover:bg-gray-700'
-                    }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs truncate">{m.name}</span>
-                    {m.active && (
-                      <span className="text-[10px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">loaded</span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Model selector (hidden for non-admins in CPA demo mode) */}
+        {!hideModelPicker && (
+          <div className="relative mb-2" ref={modelPickerRef}>
+            <button
+              onClick={() => setShowModelPicker(!showModelPicker)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-200 rounded-md hover:bg-gray-700/50 transition-colors"
+              title="Select model"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <span className="font-mono truncate max-w-[200px]">{modelLabel}</span>
+              <svg className={`w-3 h-3 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {showModelPicker && models.length > 0 && (
+              <div className="absolute bottom-full left-0 mb-1 w-72 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 py-1 max-h-48 overflow-y-auto">
+                {models.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setSelectedModel(m.id);
+                      setShowModelPicker(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors ${m.id === selectedModel
+                        ? 'bg-blue-500/15 text-blue-400'
+                        : 'text-gray-300 hover:bg-gray-700'
+                      }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs truncate">{m.name}</span>
+                      {m.active && (
+                        <span className="text-[10px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded">loaded</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex items-end gap-2 sm:gap-3 bg-gray-700 rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 focus-within:ring-2 focus-within:ring-blue-500/50 transition-shadow duration-200">
           <textarea
             ref={textareaRef}

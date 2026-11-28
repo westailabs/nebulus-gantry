@@ -10,6 +10,8 @@ import { ExportActions } from '../components/ExportActions';
 import { useChatStore } from '../stores/chatStore';
 import { useAuthStore } from '../stores/authStore';
 import { useDispatchStore } from '../stores/dispatchStore';
+import { useConfigStore, useHideDevChrome } from '../stores/configStore';
+import { quickPromptsFor } from '../demo/quickPrompts';
 import { chatApi, dispatchApi } from '../services/api';
 import type { Citation, Message, MessageMeta, Conversation, Persona } from '../types/api';
 
@@ -19,10 +21,14 @@ const OVERLORD_ROUTING_ENABLED = false; // Direct LLM mode for appliance
 export function Chat() {
   const { currentConversationId, updateConversationTitle, createConversation, setModelSwitching } = useChatStore();
   const { sidebarOpen, toggleSidebar, addEvent, clearEvents, events } = useDispatchStore();
+  // CPA demo mode: non-admins never see the Situation Map (Halt All, Daily Budget).
+  const hideDevChrome = useHideDevChrome();
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  // Temp id of the streamed assistant placeholder until it is replaced by the saved message.
+  const [unsavedAssistantId, setUnsavedAssistantId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pendingMessageRef = useRef<{ content: string; model?: string } | null>(null);
 
@@ -108,6 +114,7 @@ export function Chat() {
       };
 
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      setUnsavedAssistantId(tempAssistantMessageId);
 
       try {
         let fullContent = '';
@@ -203,6 +210,7 @@ export function Chat() {
             }
             // Also refresh messages to get proper IDs
             setMessages(data.messages);
+            setUnsavedAssistantId(null);
           } catch {
             // Silently fail on title update - not critical
           }
@@ -211,12 +219,14 @@ export function Chat() {
           try {
             const data = await chatApi.getConversation(currentConversationId);
             setMessages(data.messages);
+            setUnsavedAssistantId(null);
           } catch {
-            // Keep the streamed content if refresh fails
+            // Keep the streamed content if refresh fails (the placeholder stays marked unsaved)
           }
         }
       } catch (err) {
         setError((err as Error).message);
+        setUnsavedAssistantId(null);
         // Remove the placeholder messages on error
         setMessages((prev) =>
           prev.filter(
@@ -289,7 +299,7 @@ export function Chat() {
                   conversationId={currentConversationId}
                   disabled={isSending || isLoading}
                 />
-                {!sidebarOpen && (
+                {!hideDevChrome && !sidebarOpen && (
                   <button
                     onClick={toggleSidebar}
                     className="p-1.5 text-gray-400 hover:text-gray-200 transition-colors rounded"
@@ -323,6 +333,7 @@ export function Chat() {
             {/* Messages */}
             <MessageList
               messages={messages}
+              unsavedMessageId={unsavedAssistantId}
               isLoading={isLoading || (isSending && messages[messages.length - 1]?.content === '')}
             />
 
@@ -340,7 +351,7 @@ export function Chat() {
       </div>
 
       {/* Situation Map sidebar */}
-      {sidebarOpen && <SituationMap />}
+      {!hideDevChrome && sidebarOpen && <SituationMap />}
     </div>
   );
 }
@@ -352,34 +363,44 @@ function getGreeting(): string {
   return 'Good evening';
 }
 
-const QUICK_PROMPTS = [
-  { label: 'Explain some code', prompt: 'Help me understand this code and suggest improvements for readability and performance.' },
-  { label: 'Brainstorm ideas', prompt: 'Help me brainstorm creative solutions for a technical challenge I\'m working on.' },
-  { label: 'Write documentation', prompt: 'Help me write clear, concise documentation for my project.' },
-  { label: 'Debug an issue', prompt: 'I\'m running into a bug. Help me trace the issue and find the root cause.' },
-];
+/** CPA demo welcome line. Exact agreed wording; no offline or compliance claims. */
+const DEMO_WELCOME_SUBTITLE = 'Your data stays on your own hardware';
 
-function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?: string) => void; isSending: boolean }) {
+export function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?: string) => void; isSending: boolean }) {
   const user = useAuthStore((state) => state.user);
   const firstName = user?.display_name?.split(' ')[0] || 'there';
+  const demoMode = useConfigStore((state) => state.demoMode);
+  const firmName = useConfigStore((state) => state.firmName);
+  const quickPrompts = quickPromptsFor(demoMode);
 
   return (
     <div className="flex-1 flex flex-col">
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="text-center max-w-2xl w-full">
           <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-gradient-to-br from-cyan-500/20 to-violet-500/20 border border-cyan-500/30 flex items-center justify-center">
-            <span className="text-3xl">🏍️</span>
+            {demoMode ? (
+              <svg className="h-7 w-7 text-cyan-200" viewBox="0 0 128 128" fill="none" stroke="currentColor" strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" data-testid="welcome-mark">
+                <path d="M24 72H48L62 36L78 92L90 52H108" />
+              </svg>
+            ) : (
+              <span className="text-3xl">🏍️</span>
+            )}
           </div>
+          {demoMode && firmName && (
+            <p className="text-sm font-medium tracking-wide text-cyan-200/90 mb-1" data-testid="demo-firm-name">
+              {firmName}
+            </p>
+          )}
           <h2 className="text-xl sm:text-2xl font-semibold text-gray-200 mb-2">
             {getGreeting()}, {firstName}.
           </h2>
           <p className="text-gray-400 text-sm sm:text-base max-w-md mx-auto mb-8">
-            Your data stays on this device. Ask me anything.
+            {demoMode ? DEMO_WELCOME_SUBTITLE : 'Your data stays on this device. Ask me anything.'}
           </p>
 
           {/* Quick-start suggestions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
-            {QUICK_PROMPTS.map((item) => (
+            {quickPrompts.map((item) => (
               <button
                 key={item.label}
                 onClick={() => onSend(item.prompt)}
@@ -390,6 +411,9 @@ function WelcomeScreen({ onSend, isSending }: { onSend: (content: string, model?
               </button>
             ))}
           </div>
+          {demoMode && (
+            <p className="mt-8 text-xs text-gray-500">Powered by West AI Labs</p>
+          )}
         </div>
       </div>
 

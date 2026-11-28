@@ -3,6 +3,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Citation, Message } from '../types/api';
 import { SourceViewer } from './SourceViewer';
+import { AuditEntryViewer } from './AuditEntryViewer';
+import { useConfigStore } from '../stores/configStore';
 import { SOURCE_HREF, linkCitations } from './citationUtils';
 import { usePreferencesStore } from '../stores/preferencesStore';
 import { ChartBlock } from './ChartBlock';
@@ -10,11 +12,18 @@ import { extractChartsFromText } from './chartUtils';
 
 interface MessageBubbleProps {
   message: Message;
+  /** Streaming placeholder with a temporary id: it has no saved message or audit entry yet. */
+  isUnsaved?: boolean;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, isUnsaved = false }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [openSource, setOpenSource] = useState<Citation | null>(null);
+  const [showAudit, setShowAudit] = useState(false);
+  // CPA demo mode: every assistant answer links to its logged chat.query entry.
+  const demoMode = useConfigStore((state) => state.demoMode);
+  // Only once the answer is saved: a temp id would 404 at /api/chat/messages/{id}/audit.
+  const showAuditLink = demoMode && !isUser && !isUnsaved;
   const sources = !isUser ? message.sources ?? [] : [];
   const { showTimestamps, showTokenUsage, showGenerationSpeed } = usePreferencesStore();
 
@@ -153,6 +162,17 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             {formatTime(message.created_at)}
           </span>
 
+          {showAuditLink && (
+            <button
+              type="button"
+              onClick={() => setShowAudit(true)}
+              className="text-xs text-gray-400 hover:text-cyan-200 hover:underline"
+              title="Open the audit log entry for this answer"
+            >
+              View audit entry
+            </button>
+          )}
+
           {/* Token usage + speed (AI messages only) */}
           {hasMetaToShow && (
             <span className="text-xs text-gray-500 flex items-center gap-1.5">
@@ -172,6 +192,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
       </div>
       {openSource && <SourceViewer citation={openSource} onClose={() => setOpenSource(null)} />}
+      {showAudit && (
+        <AuditEntryViewer messageId={message.id} conversationId={message.conversation_id} sources={sources} onClose={() => setShowAudit(false)} />
+      )}
     </div>
   );
 }

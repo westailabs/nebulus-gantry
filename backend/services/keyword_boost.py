@@ -5,6 +5,9 @@ GANTRY_MIN_SOURCE_SIMILARITY (the Whitfield AGI case scored 0.3986 against a
 0.42 floor). A small BM25-style boost, applied only in a near-miss window and
 only when enough distinctive query terms appear in the chunk (or filename),
 can lift that hit without dragging in unrelated low-similarity chunks.
+
+Simple English plurals are folded to the singular on both sides (fold_plural), so a
+query for "documents" meets a chunk that says "document" (the CPA missing-documents card).
 """
 
 from __future__ import annotations
@@ -78,16 +81,37 @@ MAX_BOOST_CAP = 0.10
 WINDOW_CAP = 0.20
 
 
+def fold_plural(tok: str) -> str:
+    """Fold a simple English plural to its singular so "documents" matches "document".
+
+    Deliberately small: "ies" -> "y", and a trailing "s" is dropped from words longer than
+    3 chars unless they end in "ss", "us" or "is" (so "class", "status", "analysis" are kept).
+    The same fold runs on query terms and chunk tokens, so a stem only has to be consistent,
+    not a real word ("taxes" -> "taxe" still does not meet "tax"; that is a known limit).
+    """
+    if len(tok) > 3 and tok.endswith("ies"):
+        return tok[:-3] + "y"
+    if len(tok) > 3 and tok.endswith("s") and not tok.endswith(("ss", "us", "is")):
+        return tok[:-1]
+    return tok
+
+
 def tokenize(text: str) -> list[str]:
-    """Lowercased alphanumeric tokens."""
-    return [t.lower() for t in _TOKEN.findall(text or "")]
+    """Lowercased alphanumeric tokens, simple plurals folded to the singular."""
+    return [fold_plural(t.lower()) for t in _TOKEN.findall(text or "")]
 
 
 def query_terms(query: str) -> list[str]:
     """Distinctive query terms, order-preserving and de-duplicated."""
     seen: set[str] = set()
     terms: list[str] = []
-    for tok in tokenize(query):
+    for raw in _TOKEN.findall(query or ""):
+        # Stopwords are checked on the raw token, before plural folding: "does" must not
+        # become the distinctive term "doe".
+        raw = raw.lower()
+        if raw in _STOPWORDS:
+            continue
+        tok = fold_plural(raw)
         if tok in _STOPWORDS or len(tok) < 2 or tok in seen:
             continue
         seen.add(tok)

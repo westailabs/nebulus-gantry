@@ -60,6 +60,16 @@ def _get_atom_base_url() -> str:
     return os.getenv("ATOM_BASE_URL", "http://localhost:8010")
 
 
+def _get_demo_mode() -> bool:
+    """CPA demo profile switch (GANTRY_DEMO_MODE). Default off; see docs/cpa-demo-mode.md."""
+    return os.getenv("GANTRY_DEMO_MODE", "false").strip().lower() in ("true", "1", "yes")
+
+
+def _get_demo_firm_name() -> str:
+    """Fictional firm name shown in demo mode (GANTRY_DEMO_FIRM_NAME). Empty means none."""
+    return (os.getenv("GANTRY_DEMO_FIRM_NAME") or "").strip()
+
+
 @dataclass
 class Settings:
     database_url: str = field(default_factory=_get_database_url)
@@ -70,6 +80,8 @@ class Settings:
     bind_host: str = field(default_factory=_get_bind_host)
     https_enabled: bool = field(default_factory=_get_https_enabled)
     atom_base_url: str = field(default_factory=_get_atom_base_url)
+    demo_mode: bool = field(default_factory=_get_demo_mode)
+    demo_firm_name: str = field(default_factory=_get_demo_firm_name)
 
 
 settings = Settings()

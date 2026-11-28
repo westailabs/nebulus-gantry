@@ -13,6 +13,7 @@ import io
 import logging
 import math
 import os
+import re
 
 from sqlalchemy.orm import Session as DBSession
 
@@ -28,23 +29,36 @@ class RetrievalError(Exception):
     """Document search could not run (vector store unavailable or failed)."""
 
 
-def _min_similarity() -> float:
-    """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1]; 0 (the default) turns the floor off.
+# Recommended CPA-demo floor (see .env.example and docs); what a blank or bad value falls back to.
+DEFAULT_MIN_SOURCE_SIMILARITY = 0.42
 
-    The recommended CPA-demo value is 0.42 (see .env.example and docs). Invalid or
-    non-finite values log a WARNING and fall back to 0 (off), never to "refuse all".
+
+def _min_similarity() -> float:
+    """GANTRY_MIN_SOURCE_SIMILARITY in [0, 1], the minimum similarity for a cited source.
+
+    - Variable not set at all: 0, the floor is off (plain Gantry, unchanged).
+    - Set to blank/whitespace, unparseable or non-finite (a typo, an empty compose
+      substitution): the floor is NOT silently dropped. Blank falls back to 0.42; an invalid
+      or non-finite value logs a WARNING and also falls back to 0.42.
+    - Explicit 0 (or any value that clamps to 0, e.g. -0.3): the floor is off, on purpose.
+    - Any other valid number is clamped to [0, 1].
     """
-    raw = (os.getenv("GANTRY_MIN_SOURCE_SIMILARITY") or "").strip()
-    if not raw:
+    raw = os.getenv("GANTRY_MIN_SOURCE_SIMILARITY")
+    if raw is None:
         return 0.0
+    raw = raw.strip()
+    if not raw:
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     try:
         value = float(raw)
     except ValueError:
-        logger.warning("Invalid GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
-        return 0.0
+        logger.warning("Invalid GANTRY_MIN_SOURCE_SIMILARITY=%r; using the default floor %.2f",
+                       raw, DEFAULT_MIN_SOURCE_SIMILARITY)
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     if not math.isfinite(value):
-        logger.warning("Non-finite GANTRY_MIN_SOURCE_SIMILARITY=%r; similarity floor disabled", raw)
-        return 0.0
+        logger.warning("Non-finite GANTRY_MIN_SOURCE_SIMILARITY=%r; using the default floor %.2f",
+                       raw, DEFAULT_MIN_SOURCE_SIMILARITY)
+        return DEFAULT_MIN_SOURCE_SIMILARITY
     return min(max(value, 0.0), 1.0)
 
 
@@ -590,6 +604,33 @@ def sources_to_citations(results: list[dict], snippet_chars: int = 240) -> list[
     ]
 
 
+# Same pattern the UI uses to link inline markers (frontend/src/components/citationUtils.ts):
+# [1] or [1, 2], but not a markdown link like [1](http://...).
+_CITE_MARKER = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\](?!\()")
+
+
+def cited_numbers(text: str) -> set[int]:
+    """Source numbers that appear as [n] / [n, m] markers in ``text``."""
+    found: set[int] = set()
+    for m in _CITE_MARKER.finditer(text or ""):
+        found.update(int(x) for x in m.group(1).split(","))
+    return found
+
+
+def cited_citations(text: str, citations: list[dict]) -> list[dict]:
+    """The citations a reply actually uses, so the UI never shows a source the text ignores.
+
+    Numbering policy: ORIGINAL numbering is kept. Citation n is the n-th retrieved chunk,
+    the same number the model saw in the prompt and wrote in its reply, so the text is never
+    rewritten and every [n] in it still points at the chunk it named. A reply citing only [2]
+    therefore shows one source with n=2. Markers with no matching citation (out of range, or
+    [0]) are ignored; no marker at all means no sources. The caller keeps the full
+    retrieval set for the audit row.
+    """
+    used = cited_numbers(text)
+    return [c for c in citations if c.get("n") in used]
+
+
 def format_sources_context(results: list[dict], chunk_chars: int = 1500) -> str:
     """Format retrieved chunks as numbered sources for the system prompt."""
     if not results:
@@ -597,7 +638,8 @@ def format_sources_context(results: list[dict], chunk_chars: int = 1500) -> str:
     parts = [
         "Answer ONLY from the numbered sources below. Cite every fact with its "
         "source number in square brackets, e.g. [1]. If the sources do not "
-        "contain the answer, say you could not find it in the documents.",
+        "contain the answer, say you could not find it in the documents and do "
+        "not write any [n] citation marker in that reply.",
         "",
         "Sources:",
     ]

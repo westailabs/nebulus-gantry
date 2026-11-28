@@ -1,0 +1,22 @@
+{
+  "_comment": "Expected facts per CPA starter card (ids from frontend/src/demo/cpaStarterCards.json). Every fact is a list of acceptable spellings; the answer must contain at least one spelling of every fact. Every value appears in scripts/fixtures/cpa_demo_samples/SAMPLE_*.txt. 'sources' lists the files at least one citation must come from.",
+  "collection": "SAMPLE Clients (synthetic)",
+  "cards": {
+    "missing-documents": {
+      "facts": [["Whitfield"], ["Okafor"], ["Vega"]],
+      "sources": ["SAMPLE_document_requests_2026-11.txt"]
+    },
+    "irs-notice": {
+      "facts": [["$765", "765 dollars"], ["2026-10-02", "October 2, 2026", "Oct 2, 2026", "Oct. 2, 2026", "10/02/2026", "10/2/2026", "2 October 2026"]],
+      "sources": ["SAMPLE_whitfield_irs_cp2000_2024.txt"]
+    },
+    "client-1099s": {
+      "facts": [["Sample Catering Co"], ["$4,100", "4,100"], ["$38,640", "38,640"]],
+      "sources": ["SAMPLE_whitfield_2025_1099_summary.txt"]
+    },
+    "yoy-return-changes": {
+      "facts": [["$89,214", "89,214"], ["$79,630", "79,630"]],
+      "sources": ["SAMPLE_whitfield_2025_form1040_summary.txt", "SAMPLE_whitfield_2024_form1040_summary.txt"]
+    }
+  }
+}

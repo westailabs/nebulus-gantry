@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
+import { useConfigStore } from './stores/configStore';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { DemoAdminRoute } from './components/DemoAdminRoute';
 import { ToastContainer } from './components/Toast';
 import { Login } from './pages/Login';
 import { Chat } from './pages/Chat';
@@ -14,9 +16,11 @@ import { Orchestrator } from './pages/Orchestrator';
 
 function App() {
   const checkAuth = useAuthStore((state) => state.checkAuth);
+  const loadConfig = useConfigStore((state) => state.load);
 
   useEffect(() => {
     checkAuth();
+    loadConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -34,7 +38,7 @@ function App() {
                   <Route path="/" element={<Chat />} />
                   <Route path="/admin" element={<Admin />} />
                   <Route path="/overlord" element={<Overlord />} />
-                  <Route path="/orchestrator" element={<Orchestrator />} />
+                  <Route path="/orchestrator" element={<DemoAdminRoute><Orchestrator /></DemoAdminRoute>} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/personas" element={<Personas />} />
                 </Routes>

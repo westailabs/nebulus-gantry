@@ -1,0 +1,12 @@
+SYNTHETIC SAMPLE - FICTIONAL CLIENTS AND FIRM - NOT REAL CLIENTS - FOR DEMO ONLY
+Sample & Co. CPAs - Open client document requests, as of 2026-11-20
+Client: Dana and Riley Whitfield (Harbor Lane Bakery LLC, fictional)
+  Outstanding: Q3 2026 bookkeeping export for Harbor Lane Bakery LLC (requested 2026-10-06).
+  Outstanding: confirmations of the Q2 and Q3 2026 estimated tax payments (requested 2026-10-06).
+  Received: CP2000 response package with the Sample Catering Co. (fictional) Form 1099-NEC, 2026-09-24.
+Client: Samuel Okafor
+  Outstanding: year-to-date pay stub and current Form W-4 for a year-end withholding review (requested 2026-11-10).
+Client: Marisol Vega (new client)
+  Outstanding: signed 2026 engagement letter and a copy of her 2025 Form 1040 (requested 2026-11-12).
+All other clients: no open requests.
+END OF SYNTHETIC SAMPLE - FICTIONAL - FOR DEMO ONLY

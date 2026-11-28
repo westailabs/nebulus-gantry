@@ -36,6 +36,8 @@ import type {
   DocumentChunk,
   AuditListResponse,
   AuditFilters,
+  UIConfig,
+  MessageAuditEntry,
 } from '../types/api';
 
 export type ChatStreamEvent =
@@ -78,6 +80,11 @@ async function fetchApi<T>(
 
   return response.json();
 }
+
+export const configApi = {
+  /** Public runtime UI switches (CPA demo mode, firm name). */
+  get: () => fetchApi<UIConfig>('/api/config'),
+};
 
 export const authApi = {
   login: (data: LoginRequest) =>
@@ -123,6 +130,16 @@ export const chatApi = {
 
   search: (query: string) =>
     fetchApi<SearchResponse>(`/api/chat/search?q=${encodeURIComponent(query)}`),
+
+  /** CPA demo mode: the audit row for one of your own assistant answers. */
+  getMessageAudit: (messageId: number) =>
+    fetchApi<MessageAuditEntry>(`/api/chat/messages/${messageId}/audit`),
+
+  /** CPA demo mode fallback: your own chat.query rows for one thread (older rows lack a message id). */
+  getConversationAudit: (conversationId: number) =>
+    fetchApi<{ conversation_id: number; entries: MessageAuditEntry[] }>(
+      `/api/chat/conversations/${conversationId}/audit`
+    ),
 
   pinConversation: (id: number) =>
     fetchApi<Conversation>(`/api/chat/conversations/${id}/pin`, { method: 'PATCH' }),

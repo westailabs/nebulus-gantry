@@ -1,0 +1,8 @@
+SYNTHETIC SAMPLE - FICTIONAL TAXPAYER AND PAYERS - NOT REAL - FOR DEMO ONLY
+Client: Dana Whitfield (owner, Harbor Lane Bakery LLC, fictional)   SSN: 000-00-1234 (fake)
+Tax year 2025 Forms 1099 on file (summary prepared by Sample & Co. CPAs, all payers fictional):
+- Form 1099-NEC from Sample Catering Co. (fictional): $4,100 nonemployee compensation (reported on Schedule C).
+- Form 1099-K from Example Card Payments Co. (fictional): $38,640 gross payment card receipts (reported on Schedule C).
+- Form 1099-INT from Sample Credit Union (fictional): $212 interest income.
+Total Forms 1099 on file for 2025: 3.
+END OF SYNTHETIC SAMPLE - FICTIONAL - FOR DEMO ONLY
